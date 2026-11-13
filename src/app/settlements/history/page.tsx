@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Alert, Badge, Button, Card, EmptyState, PageHeader, Segmented, Spinner } from "@/components/ui";
 import { formatDateTime, platformLabel } from "@/lib/format";
@@ -88,7 +89,11 @@ export default function HistoryPage() {
                     <td className="px-4 py-2.5">
                       <div className="flex flex-wrap gap-1">
                         {b.changedRows > 0 && <Badge tone="violet">변경 {b.changedRows}</Badge>}
-                        {b.unmappedRows > 0 && <Badge tone="orange">미매핑 {b.unmappedRows}</Badge>}
+                        {b.unmappedRows > 0 && (
+                          <Link href="/settlements/unmapped" className="hover:opacity-80">
+                            <Badge tone="orange">미매핑 {b.unmappedRows} →</Badge>
+                          </Link>
+                        )}
                         {b.failedRows > 0 && <Badge tone="red">실패 {b.failedRows}</Badge>}
                         {b.changedRows + b.unmappedRows + b.failedRows === 0 && <span className="text-slate-300">-</span>}
                       </div>

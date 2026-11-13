@@ -17,6 +17,7 @@ import {
   monthRange,
   platformLabel,
   roomLabel,
+  roomsLabel,
   salesChannelLabel,
 } from "@/lib/format";
 import type { Platform, Reservation, ReservationDetail, SettlementLine } from "@/lib/types";
@@ -49,7 +50,7 @@ export default function ReservationsPage() {
         (platform === "ALL" || r.source === platform) &&
         (status === "ALL" || r.status === status) &&
         (!q ||
-          [r.bookerName, r.reservationNumber, r.roomName, roomLabel(r.roomName)].some((v) => v?.toLowerCase().replace(/\s/g, "").includes(q))),
+          [r.bookerName, r.reservationNumber, ...r.rooms.flatMap((room) => [room.name, roomLabel(room.name)])].some((v) => v?.toLowerCase().replace(/\s/g, "").includes(q))),
     );
     const value = (r: Reservation) => (sort.key === "gross" ? r.grossAmount : sort.key === "net" ? r.netAmount : (r.baseDate ?? ""));
     return [...filtered].sort((a, b) => {
@@ -161,7 +162,10 @@ export default function ReservationsPage() {
                       <p className={r.status === "CANCELLED" ? "" : "text-slate-900"}>{formatDate(r.baseDate)}</p>
                       <p className="text-xs text-slate-400">{r.checkInDate ? `${r.nights ?? "-"}박` : "매출인식일"}</p>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-medium">{roomLabel(r.roomName)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-medium">
+                      {roomsLabel(r.rooms)}
+                      {r.rooms.length > 1 && <p className="text-xs font-normal text-slate-400">{r.rooms.length}객실</p>}
+                    </td>
                     <td className="px-4 py-3">
                       <p className="whitespace-nowrap">{r.bookerName ?? "-"}</p>
                       <p className="text-xs text-slate-400">{r.reservationNumber}</p>
@@ -248,9 +252,10 @@ function DrawerTitle({ reservation: r }: { reservation: Reservation }) {
         {r.status === "CANCELLED" ? <Badge tone="red">취소</Badge> : <Badge tone="green">투숙</Badge>}
         {r.peakSeason && <Badge tone="orange">성수기</Badge>}
         {r.weekend && <Badge tone="violet">주말</Badge>}
+        {r.rooms.length > 1 && <Badge tone="blue">{r.rooms.length}객실</Badge>}
       </div>
       <h2 className="mt-2 text-xl font-bold">
-        {roomLabel(r.roomName)} <span className="font-normal text-slate-400">·</span> {r.bookerName ?? "예약자 없음"}
+        {roomsLabel(r.rooms)} <span className="font-normal text-slate-400">·</span> {r.bookerName ?? "예약자 없음"}
       </h2>
       <p className="mt-0.5 text-sm text-slate-500">
         {r.checkInDate && r.nights
@@ -266,7 +271,7 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
   const partnerDiscount = detail.lines.reduce((s, l) => s + l.partnerDiscount, 0);
   const platformDiscount = detail.lines.reduce((s, l) => s + l.platformDiscount, 0);
   const otherFee = detail.lines.reduce((s, l) => s + l.otherFee, 0);
-  const fee = detail.managementFees[0];
+  const multiRoom = r.rooms.length > 1;
 
   return (
     <div className="space-y-6">
@@ -300,13 +305,18 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
             관리비 화면에서 수정
           </Link>
         </div>
-        {fee ? (
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-            <div className="flex items-center gap-2">
-              <Badge tone={fee.basis === "CHARGED" ? "green" : fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
-              {fee.overrideAmount !== null && <span className="text-xs text-slate-500">수정됨 · {fee.overrideReason}</span>}
-            </div>
-            <span className="font-semibold">{formatWon(fee.amount)}</span>
+        {detail.managementFees.length > 0 ? (
+          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {detail.managementFees.map((fee) => (
+              <div key={fee.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <div className="flex items-center gap-2">
+                  {multiRoom && <span className="font-medium">{roomLabel(fee.roomName)}</span>}
+                  <Badge tone={fee.basis === "CHARGED" ? "green" : fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
+                  {fee.overrideAmount !== null && <span className="text-xs text-slate-500">수정됨 · {fee.overrideReason}</span>}
+                </div>
+                <span className="font-semibold">{formatWon(fee.amount)}</span>
+              </div>
+            ))}
           </div>
         ) : (
           <p className="text-sm text-slate-400">아직 계산되지 않았습니다.</p>
@@ -315,9 +325,12 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
 
       <section>
         <h3 className="mb-2 text-sm font-semibold">정산 내역 {detail.lines.length}건</h3>
+        {multiRoom && (
+          <p className="mb-2 text-xs text-slate-500">여러 객실 예약이라 금액을 객실 정가 비율로 나눠 객실마다 저장했습니다 (추정값).</p>
+        )}
         <ul className="space-y-2">
           {detail.lines.map((line) => (
-            <LineItem key={line.id} line={line} />
+            <LineItem key={line.id} line={line} showRoom={multiRoom} />
           ))}
         </ul>
       </section>
@@ -325,7 +338,7 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
   );
 }
 
-function LineItem({ line }: { line: SettlementLine }) {
+function LineItem({ line, showRoom }: { line: SettlementLine; showRoom: boolean }) {
   const tone = line.lineType === "ROOM_NIGHT" ? "blue" : line.lineType === "CANCELLATION_FEE" ? "orange" : "red";
   return (
     <li className="rounded-xl border border-slate-200 px-4 py-3">
@@ -333,9 +346,10 @@ function LineItem({ line }: { line: SettlementLine }) {
         <div className="flex items-center gap-2">
           <Badge tone={tone}>{lineTypeLabel[line.lineType]}</Badge>
           <span className="text-sm font-medium">{formatDate(line.stayDate)}</span>
+          {showRoom && <span className="text-sm text-slate-600">{roomLabel(line.roomName)}</span>}
           {line.splitEstimated && (
-            <span className="text-xs text-slate-400" title="떠나요 연박 금액을 박수로 나눈 값">
-              균등 분할
+            <span className="text-xs text-slate-400" title="떠나요 연박은 박수로, 여러 객실 예약은 객실 정가 비율로 나눈 값">
+              추정
             </span>
           )}
         </div>

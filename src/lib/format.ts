@@ -95,3 +95,16 @@ export function monthRange(month: string): { from: string; to: string } {
   const last = new Date(y, m, 0).getDate();
   return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
 }
+
+export const roomTypeLabel: Record<string, string> = {
+  SPACE_CARAVAN: "스페이스카라반",
+  AIR_STREAM: "에어스트림",
+  CARAVAN: "카라반",
+  RESORT: "리조트",
+  POOL_VILLA: "풀빌라",
+};
+
+/** 다중 객실 예약의 객실 이름 ("제돌이, 수애기") */
+export function roomsLabel(rooms: { name: string }[]): string {
+  return rooms.map((r) => roomLabel(r.name)).join(", ");
+}

@@ -92,8 +92,10 @@ export interface Reservation {
   reservationNumber: string;
   salesChannel: SalesChannel;
   salesChannelRaw: string | null;
+  /** 대표 객실 (다중 객실 예약은 첫 번째) */
   roomId: number;
   roomName: string;
+  rooms: { id: number; name: string }[];
   bookerName: string | null;
   reservedAt: string | null;
   checkInDate: string | null;
@@ -114,6 +116,7 @@ export type SettlementLineType = "ROOM_NIGHT" | "CANCELLATION_FEE" | "ROOM_NIGHT
 export interface SettlementLine {
   id: number;
   lineType: SettlementLineType;
+  roomName: string;
   stayDate: string;
   settledOn: string | null;
   grossAmount: number;
@@ -131,4 +134,35 @@ export interface ReservationDetail {
   reservation: Reservation;
   lines: SettlementLine[];
   managementFees: ManagementFee[];
+}
+
+export interface Room {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export interface UnmappedRow {
+  id: number;
+  importBatchId: number;
+  fileName: string;
+  platform: Platform;
+  rowNo: number;
+  message: string | null;
+  roomName: string | null;
+  reservationNumber: string | null;
+  bookerName: string | null;
+  stayDate: string | null;
+  nights: number | null;
+  lineType: SettlementLineType | null;
+  grossAmount: number | null;
+  netAmount: number | null;
+  suggestedRoomIds: number[];
+  uploadedAt: string;
+}
+
+export interface ResolveResult {
+  result: string;
+  message: string | null;
+  autoResolved: number;
 }

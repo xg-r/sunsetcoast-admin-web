@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { onUnmappedChanged } from "@/lib/events";
+import type { UnmappedRow } from "@/lib/types";
+import { useApi } from "@/lib/use-api";
 
 const groups = [
   {
@@ -9,6 +13,7 @@ const groups = [
     items: [
       { href: "/settlements/upload", label: "정산 파일 업로드", icon: UploadIcon },
       { href: "/settlements/history", label: "업로드 내역", icon: ListIcon },
+      { href: "/settlements/unmapped", label: "객실 지정", icon: LinkIcon, badge: "unmapped" as const },
     ],
   },
   {
@@ -23,6 +28,9 @@ const groups = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: unmapped, reload } = useApi<UnmappedRow[]>("/settlements/unmapped-rows");
+  useEffect(() => onUnmappedChanged(reload), [reload]);
+  const badges = { unmapped: unmapped?.length ?? 0 };
   return (
     <aside className="border-b border-slate-200 bg-white md:sticky md:top-0 md:h-screen md:w-60 md:shrink-0 md:border-b-0 md:border-r">
       <div className="flex items-center gap-2 px-5 py-4 md:py-6">
@@ -36,9 +44,11 @@ export function Sidebar() {
       </div>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:gap-6 md:pb-0">
         {groups.map((group) => (
-          <div key={group.title} className="flex gap-1 md:flex-col">
+          <div key={group.title} className="flex shrink-0 gap-1 md:flex-col">
             <p className="hidden px-2 pb-1 text-xs font-medium text-slate-400 md:block">{group.title}</p>
-            {group.items.map(({ href, label, icon: Icon }) => {
+            {group.items.map((item) => {
+              const { href, label, icon: Icon } = item;
+              const badge = "badge" in item && item.badge ? badges[item.badge] : 0;
               const active = pathname === href || pathname.startsWith(href + "/");
               return (
                 <Link
@@ -50,6 +60,9 @@ export function Sidebar() {
                 >
                   <Icon className={active ? "text-brand-600" : "text-slate-400"} />
                   {label}
+                  {badge > 0 && (
+                    <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{badge}</span>
+                  )}
                 </Link>
               );
             })}
@@ -103,6 +116,14 @@ function BedIcon({ className }: { className?: string }) {
   return (
     <Svg className={className}>
       <path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9" />
+    </Svg>
+  );
+}
+function LinkIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </Svg>
   );
 }

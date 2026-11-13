@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { Alert, Badge, Button, Card, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api";
+import { notifyUnmappedChanged } from "@/lib/events";
 import { formatNumber, platformLabel } from "@/lib/format";
 import type { FileImportResult, ImportCounts, RowResult, SettlementImportResponse } from "@/lib/types";
 
@@ -32,7 +33,10 @@ export default function UploadPage() {
       files.forEach((f) => form.append("files", f));
       const response = await api.post<SettlementImportResponse>(`/settlements/import?dryRun=${dryRun}`, form);
       setResult(response);
-      if (!dryRun) setFiles([]);
+      if (!dryRun) {
+        setFiles([]);
+        notifyUnmappedChanged();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -167,6 +171,17 @@ function ImportResult({ result }: { result: SettlementImportResponse }) {
           ))}
         </ul>
       </Card>
+
+      {!result.dryRun && totals.unmappedRows > 0 && (
+        <div className="mt-4">
+          <Alert tone="orange">
+            객실을 찾지 못한 행 {totals.unmappedRows}개는 저장되지 않았습니다.{" "}
+            <Link href="/settlements/unmapped" className="font-semibold underline">
+              객실 지정하러 가기
+            </Link>
+          </Alert>
+        </div>
+      )}
 
       {!result.dryRun && (
         <p className="mt-3 text-sm text-slate-500">
