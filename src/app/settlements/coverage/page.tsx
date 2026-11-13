@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { propertyShortName } from "@/components/property-tabs";
-import { Alert, Badge, Button, Card, EmptyState, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
+import { Alert, Badge, Button, Card, EmptyState, Modal, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
 import { addDays, formatDateTime, formatNumber, platformLabel } from "@/lib/format";
-import type { Platform, SettlementFileCoverage, SettlementWeekCheck } from "@/lib/types";
+import type { Platform, Property, SettlementAccount, SettlementFileCoverage, SettlementWeekCheck } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useToday } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
@@ -45,6 +45,8 @@ interface Account {
   propertyId: number | null;
   firstWeek: string;
   files: SettlementFileCoverage[];
+  /** 등록한 정산 계정이면 그 ID */
+  registeredId: number | null;
 }
 
 interface Picked {
@@ -71,18 +73,30 @@ export default function CoveragePage() {
     (checks ?? []).forEach((c) => map.set(`${c.platform}|${c.account}|${c.weekStart}`, c));
     return (account: Account, week: string) => (account.account === null ? undefined : map.get(`${account.platform}|${account.account}|${week}`));
   }, [checks]);
+  const { data: registered, error: accountsError, reload: reloadAccounts } = useApi<SettlementAccount[]>("/settlements/coverage/accounts");
+  const [adding, setAdding] = useState(false);
   const today = useToday();
   const [span, setSpan] = useState<Span>(12);
   const [shift, setShift] = useState(0);
-  const [picked, setPicked] = useState<Picked | null>(null);
+  /** 누른 칸 (고정). 고정한 칸이 없을 때만 마우스를 올린 칸을 미리 보여 준다 */
+  const [pinned, setPinned] = useState<Picked | null>(null);
+  const [hovered, setHovered] = useState<Picked | null>(null);
+  const picked = pinned ?? hovered;
 
   const currentWeek = today ? weekOf(today) : null;
   const lastWeek = currentWeek ? addDays(currentWeek, -7 * shift) : null;
   const weeks = useMemo(() => (lastWeek ? Array.from({ length: span }, (_, i) => addDays(lastWeek, -7 * (span - 1 - i))) : []), [lastWeek, span]);
 
-  const accounts = useMemo(() => buildAccounts(data ?? []), [data]);
+  const accounts = useMemo(() => buildAccounts(data ?? [], registered ?? []), [data, registered]);
 
-  const stateOf = (account: Account, week: string): { state: CellState; files: SettlementFileCoverage[]; check?: SettlementWeekCheck } => {
+  const stateOf = (
+    account: Account,
+    week: string,
+  ): {
+    state: CellState;
+    files: SettlementFileCoverage[];
+    check?: SettlementWeekCheck;
+  } => {
     const files = account.files.filter((f) => weekOf(f.issuedOn) === week);
     if (files.length) {
       if (files.every((f) => f.insertedRows === 0 && f.duplicateRows > 0)) return { state: "STALE", files };
@@ -98,7 +112,10 @@ export default function CoveragePage() {
 
   // 지금 보는 기간의 누락 (계정별)
   const missing = accounts
-    .map((account) => ({ account, weeks: weeks.filter((w) => stateOf(account, w).state === "MISSING") }))
+    .map((account) => ({
+      account,
+      weeks: weeks.filter((w) => stateOf(account, w).state === "MISSING"),
+    }))
     .filter((m) => m.weeks.length);
   const missingCells = missing.reduce((s, m) => s + m.weeks.length, 0);
   const checkedCells = accounts.reduce((s, a) => s + weeks.filter((w) => stateOf(a, w).state === "CHECKED").length, 0);
@@ -126,25 +143,40 @@ export default function CoveragePage() {
         description="정산 계정마다 주별로 정산 파일이 올라왔는지 보여 줍니다. 빨간 빗금 칸이 빠진 주입니다."
         actions={
           <>
-            <Button onClick={reload} loading={loading && !!data}>
+            <Button onClick={() => setAdding(true)}>계정 추가</Button>
+            <Button
+              onClick={() => {
+                reload();
+                reloadAccounts();
+                reloadChecks();
+              }}
+              loading={loading && !!data}
+            >
               새로고침
             </Button>
-            <Link href="/settlements/upload" className="inline-flex h-9 items-center rounded-lg bg-brand-600 px-3.5 text-sm font-medium whitespace-nowrap text-white hover:bg-brand-700">
+            <Link
+              href="/settlements/upload"
+              className="inline-flex h-9 items-center rounded-lg bg-brand-600 px-3.5 text-sm font-medium whitespace-nowrap text-white hover:bg-brand-700"
+            >
               파일 올리기
             </Link>
           </>
         }
       />
 
-      {(propertyError || error || checksError) && (
+      {(propertyError || error || checksError || accountsError) && (
         <div className="mb-4">
-          <Alert>{propertyError || error || checksError}</Alert>
+          <Alert>{propertyError || error || checksError || accountsError}</Alert>
         </div>
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="정산 계정" value={`${accounts.length}개`} hint={`업소 ${groups.filter((g) => g.id !== null).length}곳`} />
-        <Stat label="빠진 주" value={<span className={missingCells ? "text-rose-600" : ""}>{missingCells}칸</span>} hint={`최근 ${span}주 · 확인 완료 ${checkedCells}칸 제외`} />
+        <Stat
+          label="빠진 주"
+          value={<span className={missingCells ? "text-rose-600" : ""}>{missingCells}칸</span>}
+          hint={`최근 ${span}주 · 확인 완료 ${checkedCells}칸 제외`}
+        />
         <Stat label="새 행 없는 파일" value={`${staleCells}칸`} hint="같은 파일을 다시 올렸을 수 있음" />
         <Stat label="마지막 업로드" value={lastUpload ? shortDate(lastUpload.slice(0, 10)) : "-"} hint={lastUpload ? formatDateTime(lastUpload) : undefined} />
       </div>
@@ -154,7 +186,8 @@ export default function CoveragePage() {
           value={span}
           onChange={(v) => {
             setSpan(v);
-            setPicked(null);
+            setPinned(null);
+            setHovered(null);
           }}
           options={[
             { value: 8, label: "8주" },
@@ -163,10 +196,17 @@ export default function CoveragePage() {
           ]}
         />
         <div className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white p-0.5">
-          <button type="button" onClick={() => setShift(shift + span)} className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100" aria-label="이전 기간">
+          <button
+            type="button"
+            onClick={() => setShift(shift + span)}
+            className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100"
+            aria-label="이전 기간"
+          >
             ‹
           </button>
-          <span className="min-w-28 text-center text-sm font-semibold">{weeks.length ? `${shortDate(weeks[0])} – ${shortDate(addDays(weeks[weeks.length - 1], 6))}` : ""}</span>
+          <span className="min-w-28 text-center text-sm font-semibold">
+            {weeks.length ? `${shortDate(weeks[0])} – ${shortDate(addDays(weeks[weeks.length - 1], 6))}` : ""}
+          </span>
           <button
             type="button"
             onClick={() => setShift(Math.max(0, shift - span))}
@@ -221,7 +261,10 @@ export default function CoveragePage() {
               {groups.map((group) => (
                 <tbody key={group.id ?? "none"}>
                   <tr>
-                    <td colSpan={weeks.length + 2} className="sticky left-0 border-t border-slate-100 bg-slate-50/70 px-4 py-1.5 text-xs font-semibold text-slate-600">
+                    <td
+                      colSpan={weeks.length + 2}
+                      className="sticky left-0 border-t border-slate-100 bg-slate-50/70 px-4 py-1.5 text-xs font-semibold text-slate-600"
+                    >
                       {group.title} <span className="font-normal text-slate-400">· {group.fullName}</span>
                     </td>
                   </tr>
@@ -229,29 +272,41 @@ export default function CoveragePage() {
                     <tr key={account.key}>
                       <td className="sticky left-0 z-10 bg-white px-4 py-1.5">
                         <div className="flex items-center gap-2 whitespace-nowrap">
-                          <Badge tone={account.platform === "NOL" ? "violet" : account.platform === "YEOGI" ? "red" : "blue"}>{platformLabel[account.platform]}</Badge>
+                          <Badge tone={account.platform === "NOL" ? "violet" : account.platform === "YEOGI" ? "red" : "blue"}>
+                            {platformLabel[account.platform]}
+                          </Badge>
                           <span className="max-w-44 truncate text-slate-700" title={account.name}>
                             {account.name}
                           </span>
+                          {account.registeredId !== null && !account.files.length && (
+                            <RemoveAccount account={account} onDone={reloadAccounts} />
+                          )}
                         </div>
                       </td>
                       {weeks.map((w) => {
                         const { state, files } = stateOf(account, w);
-                        const active = picked?.account.key === account.key && picked.week === w;
+                        const isPinned = pinned?.account.key === account.key && pinned.week === w;
                         return (
                           <td key={w} className="px-0.5 py-1.5">
                             <button
                               type="button"
                               disabled={state === "NONE"}
-                              onMouseEnter={() => state !== "NONE" && setPicked({ account, week: w })}
-                              onFocus={() => setPicked({ account, week: w })}
-                              onClick={() => setPicked({ account, week: w })}
+                              onMouseEnter={() => state !== "NONE" && setHovered({ account, week: w })}
+                              onMouseLeave={() => setHovered(null)}
+                              onClick={() => setPinned(isPinned ? null : { account, week: w })}
+                              aria-pressed={isPinned}
                               aria-label={`${account.name} ${shortDate(w)} 주: ${CELL_LABEL[state] || "해당 없음"}`}
                               className={`flex h-7 w-7 items-center justify-center rounded-md text-[10px] font-bold transition-transform ${CELL_STYLE[state]} ${
-                                active ? "scale-110 outline-2 outline-offset-1 outline-slate-800" : state !== "NONE" ? "hover:scale-110" : ""
+                                isPinned ? "scale-110 outline-2 outline-offset-1 outline-slate-800" : state !== "NONE" ? "cursor-pointer hover:scale-110" : ""
                               }`}
                             >
-                              {state === "MISSING" ? "!" : files.length > 1 ? files.length : state === "OK" || state === "WARN" || state === "CHECKED" ? "✓" : ""}
+                              {state === "MISSING"
+                                ? "!"
+                                : files.length > 1
+                                  ? files.length
+                                  : state === "OK" || state === "WARN" || state === "CHECKED"
+                                    ? "✓"
+                                    : ""}
                             </button>
                           </td>
                         );
@@ -264,19 +319,31 @@ export default function CoveragePage() {
             </table>
           </div>
 
-          <div className="min-h-20 border-t border-slate-100 bg-slate-50/60 px-4 py-3 text-sm">
+          <div className={`min-h-20 border-t px-4 py-3 text-sm ${pinned ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/60"}`}>
             {picked && pickedCell ? (
-              <CellDetail
-                key={`${picked.account.key}|${picked.week}|${pickedCell.check?.id ?? ""}`}
-                account={picked.account}
-                week={picked.week}
-                state={pickedCell.state}
-                files={pickedCell.files}
-                check={pickedCell.check}
-                onChanged={reloadChecks}
-              />
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <CellDetail
+                    key={`${picked.account.key}|${picked.week}|${pickedCell.check?.id ?? ""}`}
+                    account={picked.account}
+                    week={picked.week}
+                    state={pickedCell.state}
+                    files={pickedCell.files}
+                    check={pickedCell.check}
+                    onChanged={reloadChecks}
+                    preview={!pinned}
+                  />
+                </div>
+                {pinned ? (
+                  <button type="button" onClick={() => setPinned(null)} className="shrink-0 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+                    닫기
+                  </button>
+                ) : (
+                  <span className="shrink-0 text-xs text-slate-400">눌러서 고정</span>
+                )}
+              </div>
             ) : (
-              <p className="text-slate-400">칸에 마우스를 올리거나 누르면 그 주의 파일이 여기에 나옵니다.</p>
+              <p className="text-slate-400">칸을 누르면 그 주의 파일이 여기에 고정되어 나옵니다. 빠진 주는 여기서 확인 완료로 표시할 수 있습니다.</p>
             )}
           </div>
         </Card>
@@ -299,16 +366,27 @@ export default function CoveragePage() {
             ))}
           </ul>
           <p className="mt-3 text-xs text-slate-400">
-            판매가 없던 주에는 플랫폼이 정산 파일을 만들지 않을 수 있습니다. 플랫폼 관리자 화면에서 그 주에 정산이 없었는지 확인한 뒤, 칸을 눌러
-            &lsquo;확인 완료&rsquo;로 표시하세요. 확인 완료한 주는 업로드된 주처럼 취급합니다.
+            판매가 없던 주에는 플랫폼이 정산 파일을 만들지 않을 수 있습니다. 플랫폼 관리자 화면에서 그 주에 정산이 없었는지 확인한 뒤, 칸을 눌러 &lsquo;확인
+            완료&rsquo;로 표시하세요. 확인 완료한 주는 업로드된 주처럼 취급합니다.
           </p>
         </Card>
       )}
 
       <p className="text-xs text-slate-400">
-        정산 계정과 정산일은 파일명에서 읽습니다 (떠나요·여기어때 <code>정산내역_업소명_날짜</code>, NOL <code>정산상세내역_업소_계정_MMdd</code>). 파일명을 바꾸면
-        계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
+        정산 계정과 정산일은 파일명에서 읽습니다 (떠나요·여기어때 <code>정산내역_업소명_날짜</code>, NOL <code>정산상세내역_업소_계정_MMdd</code>). 파일명을
+        바꾸면 계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
       </p>
+      {adding && (
+        <AddAccountDialog
+          properties={properties}
+          defaultWeek={weeks[0] ?? null}
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            reloadAccounts();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -320,6 +398,7 @@ function CellDetail({
   files,
   check,
   onChanged,
+  preview,
 }: {
   account: Account;
   week: string;
@@ -327,6 +406,8 @@ function CellDetail({
   files: SettlementFileCoverage[];
   check?: SettlementWeekCheck;
   onChanged: () => void;
+  /** 마우스만 올린 상태. 버튼 대신 안내만 보여 준다 */
+  preview?: boolean;
 }) {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -336,7 +417,12 @@ function CellDetail({
     setSaving(true);
     setError(null);
     try {
-      await api.post("/settlements/coverage/checks", { platform: account.platform, account: account.account, weekStart: week, note: note || null });
+      await api.post("/settlements/coverage/checks", {
+        platform: account.platform,
+        account: account.account,
+        weekStart: week,
+        note: note || null,
+      });
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -391,12 +477,15 @@ function CellDetail({
       ) : state === "CHECKED" && check ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p className="text-slate-600">
-            파일 없음 · 관리자 확인 완료{check.note && <span className="text-slate-800"> — {check.note}</span>}
+            파일 없음 · 관리자 확인 완료
+            {check.note && <span className="text-slate-800"> — {check.note}</span>}
             <span className="ml-2 text-xs text-slate-400">{formatDateTime(check.createdAt)}</span>
           </p>
-          <Button size="sm" variant="ghost" onClick={undo} loading={saving}>
-            확인 취소
-          </Button>
+          {!preview && (
+            <Button size="sm" variant="ghost" onClick={undo} loading={saving}>
+              확인 취소
+            </Button>
+          )}
         </div>
       ) : state === "MISSING" ? (
         <div className="space-y-2">
@@ -406,7 +495,9 @@ function CellDetail({
               파일 올리기
             </Link>
           </p>
-          {account.account !== null ? (
+          {preview ? (
+            <p className="text-xs text-slate-400">칸을 누르면 여기서 &lsquo;정산 없음 · 확인 완료&rsquo;로 표시할 수 있습니다.</p>
+          ) : account.account !== null ? (
             <form
               className="flex flex-wrap items-center gap-2"
               onSubmit={(e) => {
@@ -433,7 +524,9 @@ function CellDetail({
         <p className="text-slate-500">이번 주 정산 파일은 아직 올라오지 않았습니다.</p>
       )}
       {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
-      {files.some((f) => !f.issuedOnFromFileName) && <p className="mt-1 text-xs text-slate-400">파일명에서 정산일을 읽지 못해 정산 행·업로드일로 추정했습니다.</p>}
+      {files.some((f) => !f.issuedOnFromFileName) && (
+        <p className="mt-1 text-xs text-slate-400">파일명에서 정산일을 읽지 못해 정산 행·업로드일로 추정했습니다.</p>
+      )}
     </div>
   );
 }
@@ -446,7 +539,12 @@ function BulkCheck({ account, weeks, onDone }: { account: Account; weeks: string
     setSaving(true);
     try {
       for (const week of weeks) {
-        await api.post("/settlements/coverage/checks", { platform: account.platform, account: account.account, weekStart: week, note: null });
+        await api.post("/settlements/coverage/checks", {
+          platform: account.platform,
+          account: account.account,
+          weekStart: week,
+          note: null,
+        });
       }
     } catch (e) {
       alert((e as Error).message);
@@ -462,18 +560,150 @@ function BulkCheck({ account, weeks, onDone }: { account: Account; weeks: string
   );
 }
 
-function buildAccounts(files: SettlementFileCoverage[]): Account[] {
+/** 파일을 아직 올리지 않은 등록 계정만 지울 수 있다 */
+function RemoveAccount({ account, onDone }: { account: Account; onDone: () => void }) {
+  const remove = async () => {
+    if (!confirm(`${platformLabel[account.platform]} · ${account.name}\n정산 계정 등록을 지울까요?`)) return;
+    try {
+      await api.delete(`/settlements/coverage/accounts/${account.registeredId}`);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      onDone();
+    }
+  };
+  return (
+    <button type="button" onClick={remove} className="rounded px-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-rose-600" aria-label="정산 계정 등록 지우기">
+      ×
+    </button>
+  );
+}
+
+const FILE_NAME_HINT: Record<string, string> = {
+  DDNAYO: "정산내역_{계정}_2026-08-04_떠나요.xls",
+  YEOGI: "정산내역_{계정}_2026-08-05.xlsx",
+  NOL: "정산상세내역_업소_{계정}_0806.xls",
+};
+
+function AddAccountDialog({
+  properties,
+  defaultWeek,
+  onClose,
+  onSaved,
+}: {
+  properties: Property[];
+  defaultWeek: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [platform, setPlatform] = useState<Platform>("DDNAYO");
+  const [account, setAccount] = useState("");
+  const [propertyId, setPropertyId] = useState<number | null>(properties[0]?.id ?? null);
+  const [startedOn, setStartedOn] = useState(defaultWeek ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post("/settlements/coverage/accounts", { platform, account, propertyId, startedOn });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const input = "h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm outline-none focus:border-brand-500";
+  return (
+    <Modal open onClose={onClose} title="정산 계정 추가">
+      <form
+        className="space-y-4 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <p className="text-slate-500">파일을 아직 올리지 않은 계정도 등록해 두면 시작 주부터 빠진 주가 보입니다.</p>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">플랫폼</span>
+          <Segmented<Platform>
+            value={platform}
+            onChange={setPlatform}
+            options={[
+              { value: "DDNAYO", label: "떠나요" },
+              { value: "YEOGI", label: "여기어때" },
+              { value: "NOL", label: "NOL" },
+            ]}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">계정 이름 (파일명에 나오는 그대로)</span>
+          <input value={account} onChange={(e) => setAccount(e.target.value)} required className={input} placeholder="서귀포 스테이 디앤디 풀빌라" />
+          <span className="mt-1 block text-xs text-slate-400">{FILE_NAME_HINT[platform]}</span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">업소</span>
+          <select value={propertyId ?? ""} onChange={(e) => setPropertyId(e.target.value ? Number(e.target.value) : null)} className={input}>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">시작 주 (이 날짜가 속한 주부터 파일이 있어야 함)</span>
+          <input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} required className={input} />
+        </label>
+        {error && <Alert>{error}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            취소
+          </Button>
+          <Button variant="primary" type="submit" loading={saving}>
+            추가
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function buildAccounts(files: SettlementFileCoverage[], registered: SettlementAccount[]): Account[] {
   const map = new Map<string, Account>();
+  registered.forEach((r) => {
+    const key = `${r.platform}|${r.account}`;
+    map.set(key, {
+      key,
+      platform: r.platform,
+      name: r.account,
+      account: r.account,
+      propertyId: r.propertyId,
+      firstWeek: weekOf(r.startedOn),
+      files: [],
+      registeredId: r.id,
+    });
+  });
   files.forEach((f) => {
     const name = f.account ?? "계정 미확인";
     const key = `${f.platform}|${name}`;
-    const account = map.get(key) ?? { key, platform: f.platform, name, account: f.account, propertyId: f.propertyId, firstWeek: weekOf(f.issuedOn), files: [] };
+    const account = map.get(key) ?? {
+      key,
+      platform: f.platform,
+      name,
+      account: f.account,
+      propertyId: f.propertyId,
+      firstWeek: weekOf(f.issuedOn),
+      files: [],
+      registeredId: null,
+    };
     account.files.push(f);
     if (weekOf(f.issuedOn) < account.firstWeek) account.firstWeek = weekOf(f.issuedOn);
     if (account.propertyId === null) account.propertyId = f.propertyId;
     map.set(key, account);
   });
-  return [...map.values()].sort(
-    (a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform) || a.name.localeCompare(b.name, "ko"),
-  );
+  return [...map.values()].sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform) || a.name.localeCompare(b.name, "ko"));
 }

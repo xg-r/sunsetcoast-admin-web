@@ -227,3 +227,13 @@ export interface SettlementWeekCheck {
   note: string | null;
   createdAt: string;
 }
+
+/** 파일 현황에 나와야 하는 정산 계정 (파일을 아직 올리지 않았어도) */
+export interface SettlementAccount {
+  id: number;
+  platform: Platform;
+  account: string;
+  propertyId: number | null;
+  /** 정산 파일이 있어야 하는 첫 주 (월요일) */
+  startedOn: string;
+}
