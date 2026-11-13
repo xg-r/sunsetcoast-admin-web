@@ -26,7 +26,10 @@ const groups = [
   },
   {
     title: "분석",
-    items: [{ href: "/channels", label: "판매 채널", icon: ChartIcon }],
+    items: [
+      { href: "/channels", label: "판매 채널", icon: ChartIcon },
+      { href: "/booking-lead", label: "예약 시점", icon: ClockIcon },
+    ],
   },
 ];
 
@@ -135,6 +138,14 @@ function ChartIcon({ className }: { className?: string }) {
   return (
     <Svg className={className}>
       <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </Svg>
+  );
+}
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </Svg>
   );
 }

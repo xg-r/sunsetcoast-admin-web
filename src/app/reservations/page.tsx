@@ -452,7 +452,7 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
       <section>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <Info label="예약번호" value={<span className="break-all">{r.reservationNumber}</span>} />
-          <Info label="예약 일시" value={r.reservedAt ? formatDateTime(r.reservedAt) : "-"} />
+          <Info label="예약 일시" value={reservedAtLabel(r)} />
           <Info label="예약 채널" value={r.salesChannelRaw ?? salesChannelLabel[r.salesChannel]} />
           {r.source === "DIRECT" && (
             <>
@@ -576,4 +576,14 @@ function AmountRow({ label, value, muted, strong }: { label: string; value: stri
       <span className={muted ? "text-slate-500" : strong ? "text-base" : ""}>{value}</span>
     </div>
   );
+}
+
+/** "2026.07.16 00:01 · 입실 29일 전". 떠나요·NOL은 예약 시각이 없어 날짜만 */
+function reservedAtLabel(r: Reservation): string {
+  if (!r.reservedAt) return "-";
+  const dateOnly = r.source === "DDNAYO" || r.source === "NOL";
+  const text = dateOnly ? formatDateTime(r.reservedAt).slice(0, 10) : formatDateTime(r.reservedAt);
+  if (!r.checkInDate) return text;
+  const days = Math.round((Date.parse(r.checkInDate + "T00:00:00Z") - Date.parse(r.reservedAt.slice(0, 10) + "T00:00:00Z")) / 86_400_000);
+  return days >= 0 ? `${text} · 입실 ${days === 0 ? "당일" : `${days}일 전`}` : text;
 }
