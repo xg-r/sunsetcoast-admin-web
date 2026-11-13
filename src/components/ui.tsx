@@ -142,7 +142,7 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
 }
 
 /** 오른쪽에서 열리는 상세 패널 */
-export function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+export function Drawer({ open, onClose, wide, children }: { open: boolean; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -155,7 +155,7 @@ export function Drawer({ open, onClose, children }: { open: boolean; onClose: ()
       <aside
         role="dialog"
         aria-modal="true"
-        className={`absolute inset-y-0 right-0 flex w-full max-w-xl flex-col bg-white shadow-2xl transition-transform duration-200 ${
+        className={`absolute inset-y-0 right-0 flex w-full ${wide ? "max-w-2xl" : "max-w-xl"} flex-col bg-white shadow-2xl transition-transform duration-200 ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >

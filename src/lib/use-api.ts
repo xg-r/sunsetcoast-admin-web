@@ -13,10 +13,10 @@ interface State<T> {
  * GET 요청. path가 바뀌거나 reload()를 부르면 다시 불러온다.
  * 다시 불러오는 동안에는 이전 데이터를 그대로 보여준다.
  */
-export function useApi<T>(path: string | null) {
+export function useApi<T>(path: string | null, refreshKey: number = 0) {
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<State<T> | null>(null);
-  const key = path === null ? null : `${path}#${version}`;
+  const key = path === null ? null : `${path}#${version}#${refreshKey}`;
 
   useEffect(() => {
     if (path === null || key === null) return;

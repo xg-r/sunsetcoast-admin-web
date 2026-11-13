@@ -1,4 +1,5 @@
-export type Platform = "DDNAYO" | "YEOGI" | "NOL";
+export type Platform = "DDNAYO" | "YEOGI" | "NOL" | "DIRECT";
+export type PaymentMethod = "BANK_TRANSFER" | "CARD" | "CASH" | "OTHER";
 
 export interface Property {
   id: number;
@@ -110,6 +111,12 @@ export interface Reservation {
   commissionAmount: number;
   netAmount: number;
   managementFee: number | null;
+  /** OWNER: 외부 소유주 계좌로 직접 입금 (매출 제외) */
+  paymentReceiver: "US" | "OWNER";
+  guestCount: number | null;
+  paymentMethod: PaymentMethod | null;
+  paid: boolean | null;
+  memo: string | null;
 }
 
 export type SettlementLineType = "ROOM_NIGHT" | "CANCELLATION_FEE" | "ROOM_NIGHT_REVERSAL";
@@ -175,4 +182,20 @@ export interface ResolveResult {
   result: string;
   message: string | null;
   autoResolved: number;
+}
+
+export interface ReservationConflict {
+  reservationId: number;
+  source: Platform;
+  reservationNumber: string;
+  roomName: string;
+  bookerName: string | null;
+  checkInDate: string;
+  checkOutDate: string;
+}
+
+export interface DirectQuote {
+  nights: { date: string; weekend: boolean; peak: boolean | null; prices: Record<string, number | null> }[];
+  conflicts: ReservationConflict[];
+  ownerPaid: boolean;
 }

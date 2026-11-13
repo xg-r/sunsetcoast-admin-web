@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { DirectReservationForm } from "@/components/direct-reservation-form";
 import { MonthPicker } from "@/components/month-picker";
-import { PropertyTabs } from "@/components/property-tabs";
-import { defaultRoomSelection, EXTERNAL_ROOM_NAMES, RoomFilter } from "@/components/room-filter";
-import { Alert, Badge, Card, Drawer, EmptyState, PageHeader, SearchInput, Segmented, Spinner, Stat } from "@/components/ui";
+import { ScopeFilters, useScope } from "@/components/scope-filters";
+import { Alert, Badge, Button, Card, Drawer, EmptyState, PageHeader, SearchInput, Segmented, Spinner, Stat } from "@/components/ui";
+import { api } from "@/lib/api";
 import {
   addDays,
   feeBasisLabel,
@@ -16,51 +17,46 @@ import {
   formatWon,
   lineTypeLabel,
   monthRange,
+  paymentMethodLabel,
   platformLabel,
   roomLabel,
   roomsLabel,
   salesChannelLabel,
 } from "@/lib/format";
-import type { Platform, Reservation, ReservationDetail, Room, SettlementLine } from "@/lib/types";
+import type { Platform, Reservation, ReservationDetail, SettlementLine } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
+import { useReservations } from "@/lib/use-reservations";
 
-type StatusFilter = "ALL" | "CONFIRMED" | "CANCELLED";
+type StatusFilter = "ALL" | "CONFIRMED" | "CANCELLED" | "UNPAID";
 type SortKey = "date" | "gross" | "net";
+type FormState = { mode: "create" } | { mode: "edit"; detail: ReservationDetail } | null;
 
 export default function ReservationsPage() {
-  const { properties, propertyId, select, error: propertyError } = useProperty();
+  const { properties, error: propertyError } = useProperty();
+  const scope = useScope(properties);
   const [month, setMonth] = useMonth();
   const [platform, setPlatform] = useState<"ALL" | Platform>("ALL");
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "date", desc: false });
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  // 업소마다 고른 객실. 고르기 전에는 외부 소유주 객실(Villa II·III)을 뺀 전체
-  const [roomSelections, setRoomSelections] = useState<Record<number, Set<number>>>({});
-
-  const { data: rooms } = useApi<Room[]>(propertyId === null ? null : `/properties/${propertyId}/rooms`);
-  const roomSelection = propertyId !== null ? roomSelections[propertyId] : undefined;
-  const defaultRooms = useMemo(() => defaultRoomSelection(rooms ?? []), [rooms]);
+  const [form, setForm] = useState<FormState>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const range = month ? monthRange(month) : null;
-  const { data, error, loading } = useApi<Reservation[]>(
-    propertyId === null || range === null ? null : `/reservations?propertyId=${propertyId}&from=${range.from}&to=${range.to}`,
-  );
+  const { data, error, loading } = useReservations(scope.scopeProperties, range, refreshKey);
   const all = useMemo(() => data ?? [], [data]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/\s/g, "");
-    const roomMatches = (r: Reservation) =>
-      roomSelection
-        ? r.rooms.some((room) => roomSelection.has(room.id))
-        : r.rooms.some((room) => !EXTERNAL_ROOM_NAMES.includes(room.name));
     const filtered = all.filter(
       (r) =>
-        roomMatches(r) &&
+        r.rooms.some((room) => scope.selectedRooms.has(room.id)) &&
         (platform === "ALL" || r.source === platform) &&
-        (status === "ALL" || r.status === status) &&
+        (status === "ALL" || (status === "UNPAID" ? r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid : r.status === status)) &&
         (!q ||
           [r.bookerName, r.reservationNumber, ...r.rooms.flatMap((room) => [room.name, roomLabel(room.name)])].some((v) => v?.toLowerCase().replace(/\s/g, "").includes(q))),
     );
@@ -71,18 +67,21 @@ export default function ReservationsPage() {
       const cmp = va < vb ? -1 : va > vb ? 1 : a.id - b.id;
       return sort.desc ? -cmp : cmp;
     });
-  }, [all, platform, status, query, sort, roomSelection]);
+  }, [all, platform, status, query, sort, scope.selectedRooms]);
 
   const stats = useMemo(() => {
     const confirmed = rows.filter((r) => r.status === "CONFIRMED");
-    const gross = rows.reduce((s, r) => s + r.grossAmount, 0);
-    const commission = rows.reduce((s, r) => s + r.commissionAmount, 0);
+    // 외부 소유주 계좌로 직접 입금된 예약은 우리 매출이 아니다
+    const ours = rows.filter((r) => r.paymentReceiver === "US");
+    const gross = ours.reduce((s, r) => s + r.grossAmount, 0);
+    const commission = ours.reduce((s, r) => s + r.commissionAmount, 0);
     return {
       count: rows.length,
       cancelled: rows.length - confirmed.length,
       nights: confirmed.reduce((s, r) => s + (r.nights ?? 0), 0),
       gross,
-      net: rows.reduce((s, r) => s + r.netAmount, 0),
+      net: ours.reduce((s, r) => s + r.netAmount, 0),
+      ownerPaid: rows.length - ours.length,
       commissionRate: gross > 0 ? (commission / gross) * 100 : null,
     };
   }, [rows]);
@@ -90,28 +89,50 @@ export default function ReservationsPage() {
   const toggleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, desc: !prev.desc } : { key, desc: key !== "date" }));
   const closeDrawer = useCallback(() => setSelectedId(null), []);
-  const filtered = platform !== "ALL" || status !== "ALL" || query.trim() !== "" || roomSelection !== undefined;
+  const closeForm = useCallback(() => setForm(null), []);
+  const changed = (message: string) => {
+    setNotice(message);
+    setRefreshKey((k) => k + 1);
+  };
+  const filtered = platform !== "ALL" || status !== "ALL" || query.trim() !== "" || scope.roomsCustomized;
 
   return (
     <>
-      <PageHeader title="예약 내역" description="정산 파일로 들어온 예약입니다. 입실일 기준이고, 입실일을 알 수 없는 취소 예약은 매출인식일 기준으로 보여줍니다." />
+      <PageHeader
+        title="예약 내역"
+        description="정산 파일로 들어온 예약과 직접 입력한 예약입니다. 입실일 기준이고, 입실일을 알 수 없는 취소 예약은 매출인식일 기준으로 보여줍니다."
+        actions={
+          <Button variant="primary" onClick={() => setForm({ mode: "create" })}>
+            + 예약 입력
+          </Button>
+        }
+      />
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <PropertyTabs properties={properties} value={propertyId} onChange={select} />
+        <ScopeFilters scope={scope} />
         <MonthPicker month={month} onChange={setMonth} />
         {loading && data && <Spinner className="text-slate-400" />}
       </div>
 
-      {(propertyError || error) && (
+      {(propertyError || scope.ownersError || error) && (
         <div className="mb-4">
-          <Alert>{propertyError || error}</Alert>
+          <Alert>{propertyError || scope.ownersError || error}</Alert>
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4">
+          <Alert tone="blue">{notice}</Alert>
         </div>
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="예약" value={data ? `${formatNumber(stats.count)}건` : "-"} hint={data ? (stats.cancelled ? `취소 ${stats.cancelled}건 포함` : "취소 없음") : undefined} />
         <Stat label="판매 박수" value={data ? `${formatNumber(stats.nights)}박` : "-"} hint="취소 제외" />
-        <Stat label="매출" value={data ? formatWon(stats.gross) : "-"} hint={stats.commissionRate !== null ? `평균 수수료율 ${stats.commissionRate.toFixed(1)}%` : undefined} />
+        <Stat
+          label="매출"
+          value={data ? formatWon(stats.gross) : "-"}
+          hint={stats.ownerPaid ? `소유주 입금 ${stats.ownerPaid}건 제외` : stats.commissionRate !== null ? `평균 수수료율 ${stats.commissionRate.toFixed(1)}%` : undefined}
+        />
         <Stat label="정산금액 (입금)" value={data ? formatWon(stats.net) : "-"} hint="수수료·할인 차감 후" />
       </div>
 
@@ -125,6 +146,7 @@ export default function ReservationsPage() {
               { value: "DDNAYO", label: "떠나요" },
               { value: "YEOGI", label: "여기어때" },
               { value: "NOL", label: "NOL" },
+              { value: "DIRECT", label: "직접 입력" },
             ]}
           />
           <Segmented<StatusFilter>
@@ -134,13 +156,8 @@ export default function ReservationsPage() {
               { value: "ALL", label: "모든 상태" },
               { value: "CONFIRMED", label: "투숙" },
               { value: "CANCELLED", label: "취소" },
+              { value: "UNPAID", label: "미입금" },
             ]}
-          />
-          <RoomFilter
-            rooms={rooms ?? []}
-            selected={roomSelection ?? defaultRooms}
-            defaultSelected={defaultRooms}
-            onChange={(next) => propertyId !== null && setRoomSelections((prev) => ({ ...prev, [propertyId]: next }))}
           />
         </div>
         <SearchInput value={query} onChange={setQuery} placeholder="예약자, 예약번호, 객실" />
@@ -194,6 +211,8 @@ export default function ReservationsPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {r.status === "CANCELLED" && <Badge tone="red">취소</Badge>}
+                        {r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid && <Badge tone="orange">미입금</Badge>}
+                        {r.paymentReceiver === "OWNER" && <Badge>소유주 입금</Badge>}
                         {r.peakSeason && <Badge tone="orange">성수기</Badge>}
                         {r.weekend && <Badge tone="violet">주말</Badge>}
                       </div>
@@ -208,7 +227,33 @@ export default function ReservationsPage() {
         )}
       </Card>
 
-      <ReservationDrawer id={selectedId} onClose={closeDrawer} />
+      <ReservationDrawer
+        id={selectedId}
+        refreshKey={refreshKey}
+        onClose={closeDrawer}
+        onEdit={(detail) => setForm({ mode: "edit", detail })}
+        onChanged={(message, removed) => {
+          if (removed) setSelectedId(null);
+          changed(message);
+        }}
+      />
+
+      <Drawer open={form !== null} onClose={closeForm} wide>
+        {form && (
+          <DirectReservationForm
+            key={form.mode === "edit" ? form.detail.reservation.id : "new"}
+            properties={properties}
+            initialPropertyId={scope.propertyId}
+            editing={form.mode === "edit" ? form.detail : undefined}
+            onCancel={closeForm}
+            onSaved={(detail) => {
+              setForm(null);
+              setSelectedId(detail.reservation.id);
+              changed(`${detail.reservation.reservationNumber} 예약을 ${form.mode === "edit" ? "수정" : "저장"}했습니다.`);
+            }}
+          />
+        )}
+      </Drawer>
     </>
   );
 }
@@ -235,8 +280,20 @@ function ChannelLabel({ reservation: r }: { reservation: Reservation }) {
   );
 }
 
-function ReservationDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
-  const { data, error, loading } = useApi<ReservationDetail>(id === null ? null : `/reservations/${id}`);
+function ReservationDrawer({
+  id,
+  refreshKey,
+  onClose,
+  onEdit,
+  onChanged,
+}: {
+  id: number | null;
+  refreshKey: number;
+  onClose: () => void;
+  onEdit: (detail: ReservationDetail) => void;
+  onChanged: (message: string, removed?: boolean) => void;
+}) {
+  const { data, error, loading } = useApi<ReservationDetail>(id === null ? null : `/reservations/${id}`, refreshKey);
   const detail = data && data.reservation.id === id ? data : null;
 
   return (
@@ -258,7 +315,106 @@ function ReservationDrawer({ id, onClose }: { id: number | null; onClose: () => 
         )}
         {detail && <DrawerBody detail={detail} />}
       </div>
+      {detail?.reservation.source === "DIRECT" && (
+        <DirectActions key={detail.reservation.id} detail={detail} onEdit={() => onEdit(detail)} onChanged={onChanged} />
+      )}
     </Drawer>
+  );
+}
+
+/** 직접 입력한 예약의 수정·취소·삭제 */
+function DirectActions({
+  detail,
+  onEdit,
+  onChanged,
+}: {
+  detail: ReservationDetail;
+  onEdit: () => void;
+  onChanged: (message: string, removed?: boolean) => void;
+}) {
+  const r = detail.reservation;
+  const [cancelling, setCancelling] = useState(false);
+  const [fee, setFee] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (action: () => Promise<unknown>, message: string, removed?: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      setCancelling(false);
+      onChanged(message, removed);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-200 bg-slate-50 px-6 py-4">
+      {error && (
+        <div className="mb-3">
+          <Alert>{error}</Alert>
+        </div>
+      )}
+      {cancelling ? (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold">예약 취소</p>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">받은 취소수수료 (환불하지 않은 금액, 전액 환불이면 비워 두세요)</span>
+            <input
+              inputMode="numeric"
+              value={fee}
+              onChange={(e) => setFee(e.target.value.replace(/\D/g, ""))}
+              placeholder="0"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-right text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setCancelling(false)} disabled={busy}>
+              돌아가기
+            </Button>
+            <Button
+              variant="primary"
+              loading={busy}
+              onClick={() =>
+                run(() => api.post(`/reservations/direct/${r.id}/cancel`, { cancellationFee: Number(fee) || 0 }), `${r.reservationNumber} 예약을 취소했습니다.`)
+              }
+            >
+              취소 처리
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => {
+              if (confirm(`${r.reservationNumber} 예약을 삭제할까요?\n잘못 입력한 예약만 삭제하세요. 실제로 취소된 예약은 "예약 취소"를 쓰세요.`)) {
+                run(() => api.delete(`/reservations/direct/${r.id}`), `${r.reservationNumber} 예약을 삭제했습니다.`, true);
+              }
+            }}
+          >
+            삭제
+          </Button>
+          <div className="flex gap-2">
+            {r.status === "CONFIRMED" && (
+              <Button onClick={() => setCancelling(true)} disabled={busy}>
+                예약 취소
+              </Button>
+            )}
+            {r.status === "CONFIRMED" && (
+              <Button variant="primary" onClick={onEdit} disabled={busy}>
+                수정
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -298,6 +454,19 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
           <Info label="예약번호" value={<span className="break-all">{r.reservationNumber}</span>} />
           <Info label="예약 일시" value={r.reservedAt ? formatDateTime(r.reservedAt) : "-"} />
           <Info label="예약 채널" value={r.salesChannelRaw ?? salesChannelLabel[r.salesChannel]} />
+          {r.source === "DIRECT" && (
+            <>
+              <Info label="인원" value={r.guestCount ? `${r.guestCount}명` : "-"} />
+              <Info label="결제" value={`${r.paymentMethod ? paymentMethodLabel[r.paymentMethod] : "결제수단 미입력"} · ${r.paid ? "입금 완료" : "미입금"}`} />
+            </>
+          )}
+          {r.paymentReceiver === "OWNER" && <Info label="입금" value="외부 소유주 계좌 (매출 제외)" />}
+          {r.memo && (
+            <div className="col-span-2">
+              <dt className="text-xs text-slate-500">메모</dt>
+              <dd className="mt-0.5 whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2">{r.memo}</dd>
+            </div>
+          )}
           <Info label="정산 플랫폼" value={platformLabel[r.source]} />
         </dl>
       </section>
@@ -384,11 +553,9 @@ function LineItem({ line, showRoom }: { line: SettlementLine; showRoom: boolean 
         {line.otherFee !== 0 && <span>기타 {formatWon(line.otherFee)}</span>}
         {line.settledOn && <span>지급 {formatDate(line.settledOn)}</span>}
       </div>
-      {line.fileName && (
-        <p className="mt-1 truncate text-[11px] text-slate-400" title={line.fileName}>
-          {line.fileName}
-        </p>
-      )}
+      <p className="mt-1 truncate text-[11px] text-slate-400" title={line.fileName ?? undefined}>
+        {line.fileName ?? "관리자 직접 입력"}
+      </p>
     </li>
   );
 }

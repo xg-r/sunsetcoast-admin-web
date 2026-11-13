@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { MonthPicker } from "@/components/month-picker";
-import { propertyShortName } from "@/components/property-tabs";
-import { defaultRoomSelection, EXTERNAL_ROOM_NAMES, RoomFilter } from "@/components/room-filter";
+import { ScopeFilters, useScope } from "@/components/scope-filters";
 import { Alert, Card, EmptyState, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
-import { api } from "@/lib/api";
 import { formatMonth, formatNumber, formatWon, monthRange, platformLabel, salesChannelLabel, shiftMonth } from "@/lib/format";
-import type { Platform, Property, Reservation, Room, SalesChannel } from "@/lib/types";
+import type { Platform, Reservation, SalesChannel } from "@/lib/types";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
+import { useReservations } from "@/lib/use-reservations";
 
 /** 채널 색은 채널에 고정한다 (순위나 필터에 따라 바뀌지 않는다). 검증된 categorical 팔레트 순서 */
 const CHANNEL_COLOR: Record<SalesChannel, string> = {
@@ -34,6 +33,8 @@ interface ChannelStats {
   nights: number;
   gross: number;
   stayGross: number;
+  /** ADR 분모: 우리 매출인 투숙 예약의 박수 */
+  stayNights: number;
   commission: number;
   net: number;
   platforms: Partial<Record<Platform, number>>;
@@ -41,29 +42,15 @@ interface ChannelStats {
 
 export default function ChannelsPage() {
   const { properties, error: propertyError } = useProperty();
+  const scope = useScope(properties);
   const [month, setMonth] = useMonth();
   const [span, setSpan] = useState<Span>(3);
-  const [scope, setScope] = useState<number | "ALL">("ALL");
   const [metric, setMetric] = useState<Metric>("gross");
-  const [roomSelection, setRoomSelection] = useState<Record<string, Set<number>>>({});
-
-  const scopeProperties = useMemo(() => (scope === "ALL" ? properties : properties.filter((p) => p.id === scope)), [properties, scope]);
   const months = useMemo(() => (month ? Array.from({ length: span }, (_, i) => shiftMonth(month, i - span + 1)) : []), [month, span]);
   const range = months.length ? { from: monthRange(months[0]).from, to: monthRange(months[months.length - 1]).to } : null;
 
-  const { reservations, rooms, loading, error } = useScopeData(scopeProperties, range);
-  const selectionKey = String(scope);
-  const selected = roomSelection[selectionKey];
-  const defaultRooms = useMemo(() => defaultRoomSelection(rooms), [rooms]);
-  const propertyNames = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, propertyShortName(p)])), [properties]);
-
-  const filtered = useMemo(
-    () =>
-      reservations.filter((r) =>
-        selected ? r.rooms.some((room) => selected.has(room.id)) : r.rooms.some((room) => !EXTERNAL_ROOM_NAMES.includes(room.name)),
-      ),
-    [reservations, selected],
-  );
+  const { data, loading, error } = useReservations(scope.scopeProperties, range);
+  const filtered = useMemo(() => (data ?? []).filter((r) => r.rooms.some((room) => scope.selectedRooms.has(room.id))), [data, scope.selectedRooms]);
   const channels = useMemo(() => aggregate(filtered), [filtered]);
   const totals = useMemo(() => sum(channels), [channels]);
   const byMonth = useMemo(
@@ -78,12 +65,9 @@ export default function ChannelsPage() {
       <PageHeader title="판매 채널" description="고객이 예약한 채널(네이버·야놀자·여기어때 등)별 예약과 매출입니다. 떠나요로 들어온 예약은 실제 유입 채널로 나눕니다. 입실일 기준." />
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <Segmented<number | "ALL">
-          value={scope}
-          onChange={setScope}
-          options={[{ value: "ALL", label: "전체 업소" }, ...properties.map((p) => ({ value: p.id, label: propertyShortName(p) }))]}
-        />
-        <span className="hidden h-6 w-px bg-slate-200 sm:block" />
+        <ScopeFilters scope={scope} />
+      </div>
+      <div className="mb-5 flex flex-wrap items-center gap-3">
         <Segmented<Span>
           value={span}
           onChange={setSpan}
@@ -94,23 +78,14 @@ export default function ChannelsPage() {
             { value: 12, label: "12개월" },
           ]}
         />
-      </div>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
         <MonthPicker month={month} onChange={setMonth} />
-        <RoomFilter
-          rooms={rooms}
-          selected={selected ?? defaultRooms}
-          defaultSelected={defaultRooms}
-          onChange={(next) => setRoomSelection((prev) => ({ ...prev, [selectionKey]: next }))}
-          propertyNames={propertyNames}
-        />
         <span className="text-xs text-slate-500">{periodLabel}</span>
         {loading && <Spinner className="text-slate-400" />}
       </div>
 
-      {(propertyError || error) && (
+      {(propertyError || scope.ownersError || error) && (
         <div className="mb-4">
-          <Alert>{propertyError || error}</Alert>
+          <Alert>{propertyError || scope.ownersError || error}</Alert>
         </div>
       )}
 
@@ -186,7 +161,7 @@ export default function ChannelsPage() {
                       <td className="px-3 py-3 text-right text-slate-500">{formatNumber(c.nights)}박</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right font-medium">{formatWon(c.gross)}</td>
                       <td className="px-3 py-3 text-right text-slate-500">{pct(c.gross, totals.gross)}</td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-500">{c.nights ? formatWon(Math.round(c.stayGross / c.nights)) : "-"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-500">{c.stayNights ? formatWon(Math.round(c.stayGross / c.stayNights)) : "-"}</td>
                       <td className="px-3 py-3 text-right text-slate-500">{c.gross ? pct(c.commission, c.gross) : "-"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold">{formatWon(c.net)}</td>
                     </tr>
@@ -200,7 +175,7 @@ export default function ChannelsPage() {
                     <td className="px-3 py-3 text-right">{formatNumber(totals.nights)}박</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right">{formatWon(totals.gross)}</td>
                     <td className="px-3 py-3 text-right">100%</td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right">{totals.nights ? formatWon(Math.round(totals.stayGross / totals.nights)) : "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">{totals.stayNights ? formatWon(Math.round(totals.stayGross / totals.stayNights)) : "-"}</td>
                     <td className="px-3 py-3 text-right">{totals.gross ? pct(totals.commission, totals.gross) : "-"}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">{formatWon(totals.net)}</td>
                   </tr>
@@ -306,42 +281,6 @@ function Legend({ channels }: { channels: SalesChannel[] }) {
   );
 }
 
-/** 업소별 예약과 객실을 모은다 (전체 업소면 업소마다 불러와 합친다) */
-function useScopeData(properties: Property[], range: { from: string; to: string } | null) {
-  const key = range && properties.length ? `${properties.map((p) => p.id).join(",")}|${range.from}|${range.to}` : null;
-  const [state, setState] = useState<{ key: string; reservations: Reservation[]; rooms: Room[]; error?: string } | null>(null);
-
-  useEffect(() => {
-    if (!key || !range) return;
-    let cancelled = false;
-    Promise.all(
-      properties.map((p) =>
-        Promise.all([
-          api.get<Reservation[]>(`/reservations?propertyId=${p.id}&from=${range.from}&to=${range.to}`),
-          api.get<Room[]>(`/properties/${p.id}/rooms`),
-        ]),
-      ),
-    )
-      .then((results) => {
-        if (cancelled) return;
-        setState({ key, reservations: results.flatMap(([r]) => r), rooms: results.flatMap(([, rooms]) => rooms) });
-      })
-      .catch((e: Error) => !cancelled && setState((prev) => ({ key, reservations: prev?.reservations ?? [], rooms: prev?.rooms ?? [], error: e.message })));
-    return () => {
-      cancelled = true;
-    };
-    // key가 properties·range를 대표한다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  return {
-    reservations: state?.reservations ?? [],
-    rooms: state?.rooms ?? [],
-    loading: key !== null && state?.key !== key,
-    error: state?.key === key ? state?.error : undefined,
-  };
-}
-
 function aggregate(reservations: Reservation[]): ChannelStats[] {
   const map = new Map<SalesChannel, ChannelStats>();
   reservations.forEach((r) => {
@@ -352,20 +291,26 @@ function aggregate(reservations: Reservation[]): ChannelStats[] {
       nights: 0,
       gross: 0,
       stayGross: 0,
+      stayNights: 0,
       commission: 0,
       net: 0,
       platforms: {},
     };
     s.count++;
+    s.platforms[r.source] = (s.platforms[r.source] ?? 0) + 1;
+    if (r.status === "CANCELLED") s.cancelled++;
+    else s.nights += r.nights ?? 0;
+    // 외부 소유주 계좌로 입금된 예약은 우리 매출이 아니다 (건수·박수만 센다)
+    if (r.paymentReceiver === "OWNER") {
+      map.set(r.salesChannel, s);
+      return;
+    }
     s.gross += r.grossAmount;
     s.commission += r.commissionAmount;
     s.net += r.netAmount;
-    s.platforms[r.source] = (s.platforms[r.source] ?? 0) + 1;
-    if (r.status === "CANCELLED") {
-      s.cancelled++;
-    } else {
-      s.nights += r.nights ?? 0;
+    if (r.status !== "CANCELLED") {
       s.stayGross += r.grossAmount;
+      s.stayNights += r.nights ?? 0;
     }
     map.set(r.salesChannel, s);
   });
@@ -380,10 +325,11 @@ function sum(channels: ChannelStats[]) {
       nights: t.nights + c.nights,
       gross: t.gross + c.gross,
       stayGross: t.stayGross + c.stayGross,
+      stayNights: t.stayNights + c.stayNights,
       commission: t.commission + c.commission,
       net: t.net + c.net,
     }),
-    { count: 0, cancelled: 0, nights: 0, gross: 0, stayGross: 0, commission: 0, net: 0 },
+    { count: 0, cancelled: 0, nights: 0, gross: 0, stayGross: 0, stayNights: 0, commission: 0, net: 0 },
   );
 }
 

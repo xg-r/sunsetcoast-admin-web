@@ -5,6 +5,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** 오류 응답 본문 (409 겹치는 예약 목록 등) */
+    readonly body?: unknown,
   ) {
     super(message);
   }
@@ -24,7 +26,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
   const body = text ? safeJson(text) : null;
   if (!response.ok) {
-    throw new ApiError(errorMessage(body) ?? fallbackMessage(response.status), response.status);
+    throw new ApiError(errorMessage(body) ?? fallbackMessage(response.status), response.status, body);
   }
   return body as T;
 }
@@ -54,4 +56,5 @@ export const api = {
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

@@ -1,4 +1,4 @@
-import type { FeeBasis, Platform, SalesChannel, SettlementLineType } from "./types";
+import type { FeeBasis, PaymentMethod, Platform, SalesChannel, SettlementLineType } from "./types";
 
 const won = new Intl.NumberFormat("ko-KR");
 
@@ -15,6 +15,14 @@ export const platformLabel: Record<Platform, string> = {
   DDNAYO: "떠나요",
   YEOGI: "여기어때",
   NOL: "NOL",
+  DIRECT: "직접 입력",
+};
+
+export const paymentMethodLabel: Record<PaymentMethod, string> = {
+  BANK_TRANSFER: "계좌이체",
+  CARD: "카드",
+  CASH: "현금",
+  OTHER: "기타",
 };
 
 export const feeBasisLabel: Record<FeeBasis, string> = {
