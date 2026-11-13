@@ -216,3 +216,14 @@ export interface SettlementFileCoverage {
   failedRows: number;
   createdAt: string;
 }
+
+/** 정산 파일이 없지만 관리자가 확인 완료로 표시한 주 */
+export interface SettlementWeekCheck {
+  id: number;
+  platform: Platform;
+  account: string;
+  /** 그 주의 월요일 */
+  weekStart: string;
+  note: string | null;
+  createdAt: string;
+}
