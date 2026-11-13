@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { MonthPicker } from "@/components/month-picker";
-import { PropertyTabs } from "@/components/property-tabs";
+import { PropertyTabs, propertyShortName } from "@/components/property-tabs";
+import { RoomFilter } from "@/components/room-filter";
 import { Alert, Badge, Button, Card, EmptyState, Modal, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
 import { feeBasisLabel, formatDate, formatMonth, formatNumber, formatWon, platformLabel, roomLabel } from "@/lib/format";
-import type { FeeBasis, ManagementFee, MonthlyManagementFee } from "@/lib/types";
+import type { BusinessOwner, FeeBasis, ManagementFee, MonthlyManagementFee, Room } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
@@ -20,18 +21,45 @@ const basisTone: Record<FeeBasis, "green" | "gray" | "orange"> = {
   NO_RATE: "orange",
 };
 
+type View = "PROPERTY" | "OWNER";
+
 export default function ManagementFeesPage() {
   const { properties, propertyId, select, error: propertyError } = useProperty();
   const [month, setMonth] = useMonth();
+  const [view, setView] = useState<View>("PROPERTY");
+  const [ownerId, setOwnerId] = useState<number | null>(null);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [editing, setEditing] = useState<ManagementFee | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // 업소·사업자마다 고른 객실 (없으면 전체)
+  const [roomSelections, setRoomSelections] = useState<Record<string, Set<number>>>({});
 
-  const { data, error, loading, reload } = useApi<MonthlyManagementFee>(
-    propertyId === null || month === null ? null : `/management-fees?propertyId=${propertyId}&month=${month}`,
+  // 관리비는 우리가 지급하는 가족 사업자만 (외부 소유주 Villa II·III는 0원)
+  const { data: owners } = useApi<BusinessOwner[]>("/business-owners");
+  const familyOwners = useMemo(() => (owners ?? []).filter((o) => o.ownershipType === "FAMILY"), [owners]);
+  const currentOwner = familyOwners.find((o) => o.id === ownerId) ?? familyOwners[0];
+  const { data: propertyRooms } = useApi<Room[]>(view === "PROPERTY" && propertyId !== null ? `/properties/${propertyId}/rooms` : null);
+  const scopeRooms = useMemo(() => (view === "OWNER" ? (currentOwner?.rooms ?? []) : (propertyRooms ?? [])), [view, currentOwner, propertyRooms]);
+  const scopeKey = view === "OWNER" ? `owner-${currentOwner?.id}` : `property-${propertyId}`;
+  const roomSelection = roomSelections[scopeKey];
+  const propertyNames = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, propertyShortName(p)])), [properties]);
+
+  const path =
+    month === null
+      ? null
+      : view === "OWNER"
+        ? currentOwner
+          ? `/management-fees?businessOwnerId=${currentOwner.id}&month=${month}`
+          : null
+        : propertyId !== null
+          ? `/management-fees?propertyId=${propertyId}&month=${month}`
+          : null;
+  const { data, error, loading, reload } = useApi<MonthlyManagementFee>(path);
+  const items = useMemo(
+    () => (data?.items ?? []).filter((f) => !roomSelection || roomSelection.has(f.roomId)),
+    [data, roomSelection],
   );
-  const items = useMemo(() => data?.items ?? [], [data]);
 
   const rows = useMemo(() => {
     switch (filter) {
@@ -46,9 +74,12 @@ export default function ManagementFeesPage() {
     }
   }, [items, filter]);
 
+  const total = items.reduce((sum, f) => sum + f.amount, 0);
+  const charged = items.filter((f) => f.amount > 0).length;
   const overridden = items.filter((f) => f.overrideAmount !== null).length;
-  const zero = items.filter((f) => f.amount === 0).length;
+  const zero = items.length - charged;
   const noRate = items.filter((f) => f.basis === "NO_RATE").length;
+  const scopeLabel = view === "OWNER" ? (currentOwner ? ownerLabel(currentOwner.name) : "") : "";
 
   const recalculate = async () => {
     if (!confirm("모든 예약의 관리비를 다시 계산할까요?\n관리자가 고친 금액은 그대로 유지됩니다.")) return;
@@ -69,7 +100,7 @@ export default function ManagementFeesPage() {
     <>
       <PageHeader
         title="현장 관리비"
-        description="예약 1건의 객실마다 1회 지급합니다 (박수 무관, 취소 0원). 입실일이 속한 달에 포함됩니다."
+        description="예약 1건의 객실마다 1회 지급합니다 (박수 무관, 취소 0원). 입실일이 속한 달에 포함되고, 객실 명의 사업자가 지급합니다."
         actions={
           <Button onClick={recalculate} loading={recalculating}>
             전체 재계산
@@ -77,9 +108,35 @@ export default function ManagementFeesPage() {
         }
       />
 
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <Segmented<View>
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "PROPERTY", label: "업소별" },
+            { value: "OWNER", label: "사업자별" },
+          ]}
+        />
+        <span className="hidden h-6 w-px bg-slate-200 sm:block" />
+        {view === "PROPERTY" ? (
+          <PropertyTabs properties={properties} value={propertyId} onChange={select} />
+        ) : (
+          <Segmented<number>
+            value={currentOwner?.id ?? null}
+            onChange={setOwnerId}
+            options={familyOwners.map((o) => ({ value: o.id, label: ownerLabel(o.name) }))}
+          />
+        )}
+      </div>
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <PropertyTabs properties={properties} value={propertyId} onChange={select} />
         <MonthPicker month={month} onChange={setMonth} />
+        <RoomFilter
+          rooms={scopeRooms}
+          selected={roomSelection ?? new Set(scopeRooms.map((r) => r.id))}
+          onChange={(next) => setRoomSelections((prev) => ({ ...prev, [scopeKey]: next }))}
+          propertyNames={propertyNames}
+        />
+        {view === "OWNER" && currentOwner && <OwnerRoomsSummary rooms={currentOwner.rooms} propertyNames={propertyNames} />}
         {loading && data && <Spinner className="text-slate-400" />}
       </div>
 
@@ -95,8 +152,12 @@ export default function ManagementFeesPage() {
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label={month ? `${formatMonth(month)} 지급 합계` : "지급 합계"} value={data ? formatWon(data.totalAmount) : "-"} />
-        <Stat label="지급 건수" value={data ? `${formatNumber(data.chargedCount)}건` : "-"} hint={data ? `예약 ${items.length}건 중` : undefined} />
+        <Stat
+          label={`${scopeLabel ? `${scopeLabel} · ` : ""}${month ? formatMonth(month) : ""} 지급 합계`}
+          value={data ? formatWon(total) : "-"}
+          hint={roomSelection ? "선택한 객실만" : undefined}
+        />
+        <Stat label="지급 건수" value={data ? `${formatNumber(charged)}건` : "-"} hint={data ? `예약 객실 ${items.length}건 중` : undefined} />
         <Stat label="0원" value={data ? `${zero}건` : "-"} hint="취소, Villa II·III 등" />
         <Stat label="직접 수정" value={data ? `${overridden}건` : "-"} hint={noRate ? <span className="text-amber-600">단가 없음 {noRate}건 확인 필요</span> : "한달살기 등 예외"} />
       </div>
@@ -278,5 +339,20 @@ function OverrideDialog({ fee, onClose, onSaved }: { fee: ManagementFee; onClose
         </div>
       </form>
     </Modal>
+  );
+}
+
+function ownerLabel(name: string): string {
+  return name.replace(/\(주\)|㈜/g, "").trim();
+}
+
+/** 사업자 명의 객실이 어느 업소에 몇 개 있는지 ("선셋코스트 14 · 스테이디앤디 12") */
+function OwnerRoomsSummary({ rooms, propertyNames }: { rooms: Room[]; propertyNames: Record<number, string> }) {
+  const counts = new Map<number, number>();
+  rooms.forEach((r) => counts.set(r.propertyId, (counts.get(r.propertyId) ?? 0) + 1));
+  return (
+    <span className="text-xs text-slate-500">
+      명의 객실 {rooms.length}개 · {[...counts.entries()].map(([id, n]) => `${propertyNames[id] ?? id} ${n}`).join(" · ")}
+    </span>
   );
 }

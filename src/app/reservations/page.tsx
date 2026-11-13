@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { MonthPicker } from "@/components/month-picker";
 import { PropertyTabs } from "@/components/property-tabs";
+import { defaultRoomSelection, EXTERNAL_ROOM_NAMES, RoomFilter } from "@/components/room-filter";
 import { Alert, Badge, Card, Drawer, EmptyState, PageHeader, SearchInput, Segmented, Spinner, Stat } from "@/components/ui";
 import {
   addDays,
@@ -20,7 +21,7 @@ import {
   roomsLabel,
   salesChannelLabel,
 } from "@/lib/format";
-import type { Platform, Reservation, ReservationDetail, SettlementLine } from "@/lib/types";
+import type { Platform, Reservation, ReservationDetail, Room, SettlementLine } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
@@ -36,6 +37,12 @@ export default function ReservationsPage() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "date", desc: false });
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // 업소마다 고른 객실. 고르기 전에는 외부 소유주 객실(Villa II·III)을 뺀 전체
+  const [roomSelections, setRoomSelections] = useState<Record<number, Set<number>>>({});
+
+  const { data: rooms } = useApi<Room[]>(propertyId === null ? null : `/properties/${propertyId}/rooms`);
+  const roomSelection = propertyId !== null ? roomSelections[propertyId] : undefined;
+  const defaultRooms = useMemo(() => defaultRoomSelection(rooms ?? []), [rooms]);
 
   const range = month ? monthRange(month) : null;
   const { data, error, loading } = useApi<Reservation[]>(
@@ -45,8 +52,13 @@ export default function ReservationsPage() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/\s/g, "");
+    const roomMatches = (r: Reservation) =>
+      roomSelection
+        ? r.rooms.some((room) => roomSelection.has(room.id))
+        : r.rooms.some((room) => !EXTERNAL_ROOM_NAMES.includes(room.name));
     const filtered = all.filter(
       (r) =>
+        roomMatches(r) &&
         (platform === "ALL" || r.source === platform) &&
         (status === "ALL" || r.status === status) &&
         (!q ||
@@ -59,7 +71,7 @@ export default function ReservationsPage() {
       const cmp = va < vb ? -1 : va > vb ? 1 : a.id - b.id;
       return sort.desc ? -cmp : cmp;
     });
-  }, [all, platform, status, query, sort]);
+  }, [all, platform, status, query, sort, roomSelection]);
 
   const stats = useMemo(() => {
     const confirmed = rows.filter((r) => r.status === "CONFIRMED");
@@ -78,7 +90,7 @@ export default function ReservationsPage() {
   const toggleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, desc: !prev.desc } : { key, desc: key !== "date" }));
   const closeDrawer = useCallback(() => setSelectedId(null), []);
-  const filtered = platform !== "ALL" || status !== "ALL" || query.trim() !== "";
+  const filtered = platform !== "ALL" || status !== "ALL" || query.trim() !== "" || roomSelection !== undefined;
 
   return (
     <>
@@ -123,6 +135,12 @@ export default function ReservationsPage() {
               { value: "CONFIRMED", label: "투숙" },
               { value: "CANCELLED", label: "취소" },
             ]}
+          />
+          <RoomFilter
+            rooms={rooms ?? []}
+            selected={roomSelection ?? defaultRooms}
+            defaultSelected={defaultRooms}
+            onChange={(next) => propertyId !== null && setRoomSelections((prev) => ({ ...prev, [propertyId]: next }))}
           />
         </div>
         <SearchInput value={query} onChange={setQuery} placeholder="예약자, 예약번호, 객실" />

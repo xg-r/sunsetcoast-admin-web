@@ -68,7 +68,8 @@ export interface ManagementFee {
 }
 
 export interface MonthlyManagementFee {
-  propertyId: number;
+  propertyId: number | null;
+  businessOwnerId: number | null;
   month: string;
   chargedCount: number;
   totalAmount: number;
@@ -140,6 +141,15 @@ export interface Room {
   id: number;
   name: string;
   type: string;
+  propertyId: number;
+  businessOwnerId: number;
+}
+
+export interface BusinessOwner {
+  id: number;
+  name: string;
+  ownershipType: "FAMILY" | "EXTERNAL";
+  rooms: Room[];
 }
 
 export interface UnmappedRow {
