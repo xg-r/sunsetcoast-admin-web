@@ -24,6 +24,10 @@ const groups = [
       { href: "/stay-calendar", label: "성수기 달력", icon: CalendarIcon },
     ],
   },
+  {
+    title: "분석",
+    items: [{ href: "/channels", label: "판매 채널", icon: ChartIcon }],
+  },
 ];
 
 export function Sidebar() {
@@ -124,6 +128,13 @@ function LinkIcon({ className }: { className?: string }) {
     <Svg className={className}>
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </Svg>
+  );
+}
+function ChartIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
     </Svg>
   );
 }
