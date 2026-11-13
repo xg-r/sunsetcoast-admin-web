@@ -14,6 +14,7 @@ const groups = [
   {
     title: "운영",
     items: [
+      { href: "/reservations", label: "예약 내역", icon: BedIcon },
       { href: "/management-fees", label: "현장 관리비", icon: WalletIcon },
       { href: "/stay-calendar", label: "성수기 달력", icon: CalendarIcon },
     ],
@@ -95,6 +96,13 @@ function CalendarIcon({ className }: { className?: string }) {
     <Svg className={className}>
       <rect x="3" y="4" width="18" height="18" rx="2" />
       <path d="M16 2v4M8 2v4M3 10h18" />
+    </Svg>
+  );
+}
+function BedIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9" />
     </Svg>
   );
 }

@@ -1,4 +1,4 @@
-import type { FeeBasis, Platform } from "./types";
+import type { FeeBasis, Platform, SalesChannel, SettlementLineType } from "./types";
 
 const won = new Intl.NumberFormat("ko-KR");
 
@@ -63,4 +63,35 @@ export function formatDateTime(value: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(
     d.getHours(),
   ).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export const salesChannelLabel: Record<SalesChannel, string> = {
+  NAVER: "네이버",
+  YANOLJA: "야놀자",
+  YEOGI: "여기어때",
+  DDNAYO: "떠나요",
+  HOMEPAGE: "홈페이지",
+  PHONE: "전화",
+  WALK_IN: "현장",
+  OTHER: "기타",
+};
+
+export const lineTypeLabel: Record<SettlementLineType, string> = {
+  ROOM_NIGHT: "1박",
+  CANCELLATION_FEE: "취소수수료",
+  ROOM_NIGHT_REVERSAL: "입실 후 취소",
+};
+
+/** 입실일 + 박수 → 퇴실일 ("2026-08-03") */
+export function addDays(date: string, days: number): string {
+  const d = new Date(date + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** 월의 첫날과 마지막 날 */
+export function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
 }

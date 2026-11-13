@@ -83,3 +83,52 @@ export interface SeasonDay {
   peakVotes: number;
   offpeakVotes: number;
 }
+
+export type SalesChannel = "NAVER" | "YANOLJA" | "YEOGI" | "DDNAYO" | "HOMEPAGE" | "PHONE" | "WALK_IN" | "OTHER";
+
+export interface Reservation {
+  id: number;
+  source: Platform;
+  reservationNumber: string;
+  salesChannel: SalesChannel;
+  salesChannelRaw: string | null;
+  roomId: number;
+  roomName: string;
+  bookerName: string | null;
+  reservedAt: string | null;
+  checkInDate: string | null;
+  /** 입실일, 없으면 매출인식일 */
+  baseDate: string | null;
+  nights: number | null;
+  weekend: boolean | null;
+  peakSeason: boolean | null;
+  status: "CONFIRMED" | "CANCELLED";
+  grossAmount: number;
+  commissionAmount: number;
+  netAmount: number;
+  managementFee: number | null;
+}
+
+export type SettlementLineType = "ROOM_NIGHT" | "CANCELLATION_FEE" | "ROOM_NIGHT_REVERSAL";
+
+export interface SettlementLine {
+  id: number;
+  lineType: SettlementLineType;
+  stayDate: string;
+  settledOn: string | null;
+  grossAmount: number;
+  partnerDiscount: number;
+  platformDiscount: number;
+  commissionRate: number | null;
+  commissionAmount: number;
+  otherFee: number;
+  netAmount: number;
+  splitEstimated: boolean;
+  fileName: string | null;
+}
+
+export interface ReservationDetail {
+  reservation: Reservation;
+  lines: SettlementLine[];
+  managementFees: ManagementFee[];
+}
