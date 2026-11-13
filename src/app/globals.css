@@ -1,0 +1,18 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  --color-brand-50: #fff6ed;
+  --color-brand-100: #ffead4;
+  --color-brand-500: #f97316;
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c;
+}
+
+body {
+  background: var(--color-slate-50);
+  color: var(--color-slate-900);
+  font-feature-settings: "tnum";
+}
