@@ -12,6 +12,7 @@ const groups = [
     title: "정산",
     items: [
       { href: "/settlements/upload", label: "정산 파일 업로드", icon: UploadIcon },
+      { href: "/settlements/coverage", label: "파일 현황", icon: GridIcon },
       { href: "/settlements/history", label: "업로드 내역", icon: ListIcon },
       { href: "/settlements/unmapped", label: "객실 지정", icon: LinkIcon, badge: "unmapped" as const },
     ],
@@ -19,6 +20,7 @@ const groups = [
   {
     title: "운영",
     items: [
+      { href: "/room-board", label: "객실 현황", icon: CubeIcon },
       { href: "/reservations", label: "예약 내역", icon: BedIcon },
       { href: "/management-fees", label: "현장 관리비", icon: WalletIcon },
       { href: "/stay-calendar", label: "성수기 달력", icon: CalendarIcon },
@@ -146,6 +148,24 @@ function ClockIcon({ className }: { className?: string }) {
     <Svg className={className}>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
+    </Svg>
+  );
+}
+function CubeIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <path d="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />
+    </Svg>
+  );
+}
+function GridIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 17.5h7M17.5 14v7" />
     </Svg>
   );
 }

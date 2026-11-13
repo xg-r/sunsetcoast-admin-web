@@ -199,3 +199,20 @@ export interface DirectQuote {
   conflicts: ReservationConflict[];
   ownerPaid: boolean;
 }
+
+export interface SettlementFileCoverage {
+  importBatchId: number;
+  platform: Platform;
+  /** 정산 계정 (파일명에서 읽음) */
+  account: string | null;
+  propertyId: number | null;
+  issuedOn: string;
+  issuedOnFromFileName: boolean;
+  fileName: string;
+  totalRows: number;
+  insertedRows: number;
+  duplicateRows: number;
+  unmappedRows: number;
+  failedRows: number;
+  createdAt: string;
+}
