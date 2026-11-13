@@ -7,6 +7,7 @@ import { MonthPicker } from "@/components/month-picker";
 import { ScopeFilters, useScope } from "@/components/scope-filters";
 import { Alert, Badge, Button, Card, Drawer, EmptyState, PageHeader, SearchInput, Segmented, Spinner, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useMe } from "@/lib/auth";
 import {
   addDays,
   feeBasisLabel,
@@ -58,7 +59,9 @@ export default function ReservationsPage() {
         (platform === "ALL" || r.source === platform) &&
         (status === "ALL" || (status === "UNPAID" ? r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid : r.status === status)) &&
         (!q ||
-          [r.bookerName, r.reservationNumber, ...r.rooms.flatMap((room) => [room.name, roomLabel(room.name)])].some((v) => v?.toLowerCase().replace(/\s/g, "").includes(q))),
+          [r.bookerName, r.reservationNumber, ...r.rooms.flatMap((room) => [room.name, roomLabel(room.name)])].some((v) =>
+            v?.toLowerCase().replace(/\s/g, "").includes(q),
+          )),
     );
     const value = (r: Reservation) => (sort.key === "gross" ? r.grossAmount : sort.key === "net" ? r.netAmount : (r.baseDate ?? ""));
     return [...filtered].sort((a, b) => {
@@ -86,8 +89,7 @@ export default function ReservationsPage() {
     };
   }, [rows]);
 
-  const toggleSort = (key: SortKey) =>
-    setSort((prev) => (prev.key === key ? { key, desc: !prev.desc } : { key, desc: key !== "date" }));
+  const toggleSort = (key: SortKey) => setSort((prev) => (prev.key === key ? { key, desc: !prev.desc } : { key, desc: key !== "date" }));
   const closeDrawer = useCallback(() => setSelectedId(null), []);
   const closeForm = useCallback(() => setForm(null), []);
   const changed = (message: string) => {
@@ -126,12 +128,22 @@ export default function ReservationsPage() {
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="예약" value={data ? `${formatNumber(stats.count)}건` : "-"} hint={data ? (stats.cancelled ? `취소 ${stats.cancelled}건 포함` : "취소 없음") : undefined} />
+        <Stat
+          label="예약"
+          value={data ? `${formatNumber(stats.count)}건` : "-"}
+          hint={data ? (stats.cancelled ? `취소 ${stats.cancelled}건 포함` : "취소 없음") : undefined}
+        />
         <Stat label="판매 박수" value={data ? `${formatNumber(stats.nights)}박` : "-"} hint="취소 제외" />
         <Stat
           label="매출"
           value={data ? formatWon(stats.gross) : "-"}
-          hint={stats.ownerPaid ? `소유주 입금 ${stats.ownerPaid}건 제외` : stats.commissionRate !== null ? `평균 수수료율 ${stats.commissionRate.toFixed(1)}%` : undefined}
+          hint={
+            stats.ownerPaid
+              ? `소유주 입금 ${stats.ownerPaid}건 제외`
+              : stats.commissionRate !== null
+                ? `평균 수수료율 ${stats.commissionRate.toFixed(1)}%`
+                : undefined
+          }
         />
         <Stat label="정산금액 (입금)" value={data ? formatWon(stats.net) : "-"} hint="수수료·할인 차감 후" />
       </div>
@@ -218,7 +230,9 @@ export default function ReservationsPage() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">{formatWon(r.grossAmount)}</td>
-                    <td className={`whitespace-nowrap px-4 py-3 text-right font-semibold ${r.status === "CANCELLED" ? "" : "text-slate-900"}`}>{formatWon(r.netAmount)}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 text-right font-semibold ${r.status === "CANCELLED" ? "" : "text-slate-900"}`}>
+                      {formatWon(r.netAmount)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -441,6 +455,8 @@ function DrawerTitle({ reservation: r }: { reservation: Reservation }) {
 }
 
 function DrawerBody({ detail }: { detail: ReservationDetail }) {
+  // 관리비는 슈퍼어드민만 (API도 다른 역할에는 보내지 않는다)
+  const canSeeFees = useMe()?.role === "SUPER_ADMIN";
   const r = detail.reservation;
   const partnerDiscount = detail.lines.reduce((s, l) => s + l.partnerDiscount, 0);
   const platformDiscount = detail.lines.reduce((s, l) => s + l.platformDiscount, 0);
@@ -485,36 +501,36 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
         )}
       </section>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold">현장 관리비</h3>
-          <Link href="/management-fees" className="text-xs font-medium text-brand-700 hover:underline">
-            관리비 화면에서 수정
-          </Link>
-        </div>
-        {detail.managementFees.length > 0 ? (
-          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-            {detail.managementFees.map((fee) => (
-              <div key={fee.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <div className="flex items-center gap-2">
-                  {multiRoom && <span className="font-medium">{roomLabel(fee.roomName)}</span>}
-                  <Badge tone={fee.basis === "CHARGED" ? "green" : fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
-                  {fee.overrideAmount !== null && <span className="text-xs text-slate-500">수정됨 · {fee.overrideReason}</span>}
-                </div>
-                <span className="font-semibold">{formatWon(fee.amount)}</span>
-              </div>
-            ))}
+      {canSeeFees && (
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">현장 관리비</h3>
+            <Link href="/management-fees" className="text-xs font-medium text-brand-700 hover:underline">
+              관리비 화면에서 수정
+            </Link>
           </div>
-        ) : (
-          <p className="text-sm text-slate-400">아직 계산되지 않았습니다.</p>
-        )}
-      </section>
+          {detail.managementFees.length > 0 ? (
+            <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              {detail.managementFees.map((fee) => (
+                <div key={fee.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    {multiRoom && <span className="font-medium">{roomLabel(fee.roomName)}</span>}
+                    <Badge tone={fee.basis === "CHARGED" ? "green" : fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
+                    {fee.overrideAmount !== null && <span className="text-xs text-slate-500">수정됨 · {fee.overrideReason}</span>}
+                  </div>
+                  <span className="font-semibold">{formatWon(fee.amount)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">아직 계산되지 않았습니다.</p>
+          )}
+        </section>
+      )}
 
       <section>
         <h3 className="mb-2 text-sm font-semibold">정산 내역 {detail.lines.length}건</h3>
-        {multiRoom && (
-          <p className="mb-2 text-xs text-slate-500">여러 객실 예약이라 금액을 객실 정가 비율로 나눠 객실마다 저장했습니다 (추정값).</p>
-        )}
+        {multiRoom && <p className="mb-2 text-xs text-slate-500">여러 객실 예약이라 금액을 객실 정가 비율로 나눠 객실마다 저장했습니다 (추정값).</p>}
         <ul className="space-y-2">
           {detail.lines.map((line) => (
             <LineItem key={line.id} line={line} showRoom={multiRoom} />
