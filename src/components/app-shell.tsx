@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { ForbiddenNotice } from "@/components/forbidden-notice";
 import { Sidebar } from "@/components/sidebar";
 import { Alert, Button, Card, Spinner } from "@/components/ui";
 import { canAccess, roleLabel, useAuth } from "@/lib/auth";
@@ -70,10 +71,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {canAccess(me.role, pathname) ? (
             children
           ) : (
-            <Card className="p-6">
-              <h1 className="text-lg font-bold">이 화면을 볼 권한이 없습니다</h1>
-              <p className="mt-2 text-sm text-slate-600">현장 관리비와 사용자 관리는 슈퍼어드민(본사)만 볼 수 있습니다.</p>
-            </Card>
+            <ForbiddenNotice pathname={pathname} role={me.role} />
           )}
         </div>
       </main>

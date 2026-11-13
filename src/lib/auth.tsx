@@ -11,7 +11,7 @@ export const roleLabel: Record<UserRole, string> = {
 };
 
 /** 슈퍼어드민만 들어갈 수 있는 화면 */
-export const SUPER_ADMIN_PATHS = ["/management-fees", "/admin"];
+export const SUPER_ADMIN_PATHS = ["/reservations", "/management-fees", "/admin"];
 
 export function canAccess(role: UserRole, pathname: string): boolean {
   if (role === "USER") return false;

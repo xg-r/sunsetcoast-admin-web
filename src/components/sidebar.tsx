@@ -22,7 +22,7 @@ const groups = [
     title: "운영",
     items: [
       { href: "/room-board", label: "객실 현황", icon: CubeIcon },
-      { href: "/reservations", label: "예약 내역", icon: BedIcon },
+      { href: "/reservations", label: "예약 내역", icon: BedIcon, superAdminOnly: true },
       { href: "/management-fees", label: "현장 관리비", icon: WalletIcon, superAdminOnly: true },
       { href: "/stay-calendar", label: "성수기 달력", icon: CalendarIcon },
     ],
