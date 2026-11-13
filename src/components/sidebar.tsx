@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
+import { roleLabel, useAuth, useMe } from "@/lib/auth";
 import { onUnmappedChanged } from "@/lib/events";
 import type { UnmappedRow } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -22,7 +23,7 @@ const groups = [
     items: [
       { href: "/room-board", label: "객실 현황", icon: CubeIcon },
       { href: "/reservations", label: "예약 내역", icon: BedIcon },
-      { href: "/management-fees", label: "현장 관리비", icon: WalletIcon },
+      { href: "/management-fees", label: "현장 관리비", icon: WalletIcon, superAdminOnly: true },
       { href: "/stay-calendar", label: "성수기 달력", icon: CalendarIcon },
     ],
   },
@@ -33,26 +34,44 @@ const groups = [
       { href: "/booking-lead", label: "예약 시점", icon: ClockIcon },
     ],
   },
+  {
+    title: "설정",
+    items: [{ href: "/admin/users", label: "사용자 관리", icon: UsersIcon, superAdminOnly: true }],
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const me = useMe();
+  const { logout } = useAuth();
+  const isSuperAdmin = me?.role === "SUPER_ADMIN";
+  const visibleGroups = groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !("superAdminOnly" in item && item.superAdminOnly) || isSuperAdmin) }))
+    .filter((group) => group.items.length);
   const { data: unmapped, reload } = useApi<UnmappedRow[]>("/settlements/unmapped-rows");
   useEffect(() => onUnmappedChanged(reload), [reload]);
   const badges = { unmapped: unmapped?.length ?? 0 };
   return (
-    <aside className="border-b border-slate-200 bg-white md:sticky md:top-0 md:h-screen md:w-60 md:shrink-0 md:border-b-0 md:border-r">
+    <aside className="flex flex-col border-b border-slate-200 bg-white md:sticky md:top-0 md:h-screen md:w-60 md:shrink-0 md:border-b-0 md:border-r">
       <div className="flex items-center gap-2 px-5 py-4 md:py-6">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-rose-500 text-sm font-bold text-white">
-          S
-        </span>
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-rose-500 text-sm font-bold text-white">S</span>
         <div className="leading-tight">
           <p className="text-sm font-semibold">선셋코스트</p>
           <p className="text-xs text-slate-500">관리자</p>
         </div>
+        {me && (
+          <div className="ml-auto flex items-center gap-2 md:hidden">
+            <span className="text-xs text-slate-500">
+              {me.nickname ?? "사용자"} · {roleLabel[me.role]}
+            </span>
+            <button type="button" onClick={() => void logout()} className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+              로그아웃
+            </button>
+          </div>
+        )}
       </div>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:gap-6 md:pb-0">
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.title} className="flex shrink-0 gap-1 md:flex-col">
             <p className="hidden px-2 pb-1 text-xs font-medium text-slate-400 md:block">{group.title}</p>
             {group.items.map((item) => {
@@ -69,22 +88,40 @@ export function Sidebar() {
                 >
                   <Icon className={active ? "text-brand-600" : "text-slate-400"} />
                   {label}
-                  {badge > 0 && (
-                    <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{badge}</span>
-                  )}
+                  {badge > 0 && <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{badge}</span>}
                 </Link>
               );
             })}
           </div>
         ))}
       </nav>
+      {me && (
+        <div className="hidden border-t border-slate-100 px-4 py-3 md:mt-auto md:block">
+          <p className="truncate text-sm font-medium">{me.nickname ?? "사용자"}</p>
+          <div className="mt-0.5 flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500">{roleLabel[me.role]}</span>
+            <button type="button" onClick={() => void logout()} className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+              로그아웃
+            </button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
 
 function Svg({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <svg className={`h-4 w-4 ${className ?? ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      className={`h-4 w-4 ${className ?? ""}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       {children}
     </svg>
   );
@@ -166,6 +203,15 @@ function GridIcon({ className }: { className?: string }) {
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
       <path d="M14 17.5h7M17.5 14v7" />
+    </Svg>
+  );
+}
+function UsersIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
     </Svg>
   );
 }

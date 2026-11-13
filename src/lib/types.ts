@@ -237,3 +237,20 @@ export interface SettlementAccount {
   /** 정산 파일이 있어야 하는 첫 주 (월요일) */
   startedOn: string;
 }
+
+export type UserRole = "SUPER_ADMIN" | "SITE_MANAGER" | "USER";
+
+export interface Me {
+  id: number;
+  provider: "NAVER" | "KAKAO" | "DEV";
+  /** 첫 슈퍼어드민 설정(AUTH_SUPER_ADMINS)에 적는 값 */
+  providerKey: string;
+  nickname: string | null;
+  email: string | null;
+  role: UserRole;
+}
+
+export interface AdminUser extends Me {
+  createdAt: string;
+  lastLoginAt: string | null;
+}
