@@ -31,7 +31,7 @@ const groups = [
   {
     title: "분석",
     items: [
-      { href: "/channels", label: "판매 채널", icon: ChartIcon },
+      { href: "/channels", label: "판매 채널", icon: ChartIcon, superAdminOnly: true },
       { href: "/booking-lead", label: "예약 시점", icon: ClockIcon },
       { href: "/revenue", label: "매출 전년 비교", icon: ChartIcon, superAdminOnly: true },
       { href: "/bank", label: "계좌 분석", icon: WalletIcon, superAdminOnly: true },

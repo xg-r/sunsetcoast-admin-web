@@ -305,11 +305,11 @@ function aggregate(reservations: Reservation[]): ChannelStats[] {
       map.set(r.salesChannel, s);
       return;
     }
-    s.gross += r.grossAmount;
-    s.commission += r.commissionAmount;
-    s.net += r.netAmount;
+    s.gross += r.grossAmount ?? 0;
+    s.commission += r.commissionAmount ?? 0;
+    s.net += r.netAmount ?? 0;
     if (r.status !== "CANCELLED") {
-      s.stayGross += r.grossAmount;
+      s.stayGross += r.grossAmount ?? 0;
       s.stayNights += r.nights ?? 0;
     }
     map.set(r.salesChannel, s);

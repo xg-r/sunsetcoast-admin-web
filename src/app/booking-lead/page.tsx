@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { MonthPicker } from "@/components/month-picker";
 import { ScopeFilters, useScope } from "@/components/scope-filters";
 import { Alert, Card, EmptyState, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
+import { useMe } from "@/lib/auth";
 import { formatMonth, formatNumber, formatWon, monthRange, salesChannelLabel, shiftMonth } from "@/lib/format";
 import type { Reservation, SalesChannel } from "@/lib/types";
 import { useMonth } from "@/lib/use-month";
@@ -47,6 +48,8 @@ export default function BookingLeadPage() {
   const range = months.length ? { from: monthRange(months[0]).from, to: monthRange(months[months.length - 1]).to } : null;
   const { data, loading, error } = useReservations(scope.scopeProperties, range);
 
+  // 객단가(금액)는 슈퍼어드민에게만 보여 준다
+  const showAmounts = useMe()?.role === "SUPER_ADMIN";
   const leads = useMemo(
     () =>
       (data ?? [])
@@ -80,7 +83,8 @@ export default function BookingLeadPage() {
           label: b.label,
           count: items.length,
           cancelled: items.filter((l) => l.r.status === "CANCELLED").length,
-          adr: nights ? stays.reduce((s, l) => s + l.r.grossAmount, 0) / nights : null,
+          // 금액은 슈퍼어드민에게만 온다. 현장관리자에게는 객단가를 보여 주지 않는다
+          adr: nights && stays.every((l) => l.r.grossAmount !== null) ? stays.reduce((s, l) => s + (l.r.grossAmount ?? 0), 0) / nights : null,
           avgNights: stays.length ? nights / stays.length : null,
         };
       }),
@@ -168,7 +172,7 @@ export default function BookingLeadPage() {
           <Card className="mb-5 p-5">
             <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-semibold">입실 며칠 전에 예약했나</h2>
-              <p className="text-xs text-slate-500">막대에 마우스를 올리면 건수·객단가가 나옵니다</p>
+              <p className="text-xs text-slate-500">막대에 마우스를 올리면 건수{showAmounts ? "·객단가" : ""}가 나옵니다</p>
             </div>
             <ColumnChart
               data={buckets.map((b) => ({
@@ -205,14 +209,16 @@ export default function BookingLeadPage() {
                       </td>
                     ))}
                   </tr>
-                  <tr className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-left text-slate-500">객단가 (ADR)</td>
-                    {buckets.map((b) => (
-                      <td key={b.label} className="px-2 py-2 text-slate-600">
-                        {b.adr !== null ? formatCompact(b.adr) : "-"}
-                      </td>
-                    ))}
-                  </tr>
+                  {showAmounts && (
+                    <tr className="border-b border-slate-100">
+                      <td className="py-2 pr-3 text-left text-slate-500">객단가 (ADR)</td>
+                      {buckets.map((b) => (
+                        <td key={b.label} className="px-2 py-2 text-slate-600">
+                          {b.adr !== null ? formatCompact(b.adr) : "-"}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
                   <tr>
                     <td className="py-2 pr-3 text-left text-slate-500">평균 박수</td>
                     {buckets.map((b) => (

@@ -134,9 +134,10 @@ export interface Reservation {
   weekend: boolean | null;
   peakSeason: boolean | null;
   status: "CONFIRMED" | "CANCELLED";
-  grossAmount: number;
-  commissionAmount: number;
-  netAmount: number;
+  /** 매출·수수료·정산금액은 슈퍼어드민에게만 온다 (현장관리자는 null) */
+  grossAmount: number | null;
+  commissionAmount: number | null;
+  netAmount: number | null;
   managementFee: number | null;
   /** OWNER: 외부 소유주 계좌로 직접 입금 (매출 제외) */
   paymentReceiver: "US" | "OWNER";

@@ -65,7 +65,7 @@ export default function ReservationsPage() {
             v?.toLowerCase().replace(/\s/g, "").includes(q),
           )),
     );
-    const value = (r: Reservation) => (sort.key === "gross" ? r.grossAmount : sort.key === "net" ? r.netAmount : (r.baseDate ?? ""));
+    const value = (r: Reservation) => (sort.key === "gross" ? (r.grossAmount ?? 0) : sort.key === "net" ? (r.netAmount ?? 0) : (r.baseDate ?? ""));
     return [...filtered].sort((a, b) => {
       const va = value(a);
       const vb = value(b);
@@ -76,20 +76,20 @@ export default function ReservationsPage() {
 
   // 손님 입금을 아직 받지 않은 직접 입력 예약 (이 달, 업소·객실 범위 안)
   const unpaid = useMemo(() => all.filter((r) => isUnpaid(r) && r.rooms.some((room) => scope.selectedRooms.has(room.id))), [all, scope.selectedRooms]);
-  const unpaidTotal = unpaid.reduce((sum, r) => sum + r.netAmount, 0);
+  const unpaidTotal = unpaid.reduce((sum, r) => sum + (r.netAmount ?? 0), 0);
 
   const stats = useMemo(() => {
     const confirmed = rows.filter((r) => r.status === "CONFIRMED");
     // 외부 소유주 계좌로 직접 입금된 예약은 우리 매출이 아니다
     const ours = rows.filter((r) => r.paymentReceiver === "US");
-    const gross = ours.reduce((s, r) => s + r.grossAmount, 0);
-    const commission = ours.reduce((s, r) => s + r.commissionAmount, 0);
+    const gross = ours.reduce((s, r) => s + (r.grossAmount ?? 0), 0);
+    const commission = ours.reduce((s, r) => s + (r.commissionAmount ?? 0), 0);
     return {
       count: rows.length,
       cancelled: rows.length - confirmed.length,
       nights: confirmed.reduce((s, r) => s + (r.nights ?? 0), 0),
       gross,
-      net: ours.reduce((s, r) => s + r.netAmount, 0),
+      net: ours.reduce((s, r) => s + (r.netAmount ?? 0), 0),
       ownerPaid: rows.length - ours.length,
       commissionRate: gross > 0 ? (commission / gross) * 100 : null,
     };

@@ -28,6 +28,14 @@ const notices: { path: string; notice: Notice }[] = [
     },
   },
   {
+    path: "/channels",
+    notice: {
+      title: "판매 채널 분석은 본사 전용 화면입니다",
+      reason: "채널별 매출과 정산금액이 함께 보이는 경영 자료라 슈퍼어드민(본사)만 열어 볼 수 있게 해 두었습니다.",
+      next: "예약이 어느 경로로 들어왔는지는 '객실 현황'에서 예약마다 확인할 수 있습니다.",
+    },
+  },
+  {
     path: "/bank",
     notice: {
       title: "계좌 분석은 본사 전용 화면입니다",
