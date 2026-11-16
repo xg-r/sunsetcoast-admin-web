@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 
 // 브라우저는 /api/* 로 요청하고, Next 서버가 백엔드(sunsetcoast-api)로 넘긴다. (CORS 불필요)
+// 넘길 주소는 빌드할 때 정해진다 (운영 이미지는 Docker 내부망의 http://api:8080, Dockerfile 참고)
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:8080";
 
 const nextConfig: NextConfig = {
+  // Docker 이미지용: 실행에 필요한 파일만 .next/standalone 에 모은다
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
