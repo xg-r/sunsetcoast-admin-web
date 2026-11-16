@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { Alert, Badge, Button, Card, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api";
-import { notifyUnmappedChanged } from "@/lib/events";
 import { formatNumber, platformLabel } from "@/lib/format";
-import type { FileImportResult, ImportCounts, RowResult, SettlementImportResponse } from "@/lib/types";
+import type { FileImportResult, ImportCounts, ImportJob, ImportJobsCreated, RowResult, SettlementImportResponse } from "@/lib/types";
+import { useImportJobs } from "@/lib/use-import-jobs";
 
 const ACCEPT = ".xlsx,.xls,.csv";
 
@@ -14,28 +14,34 @@ export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState<"preview" | "import" | null>(null);
-  const [result, setResult] = useState<SettlementImportResponse | null>(null);
+  const [preview, setPreview] = useState<SettlementImportResponse | null>(null);
+  const [rejected, setRejected] = useState<ImportJobsCreated["rejected"]>([]);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { jobs, finished, error: pollError, track, clear } = useImportJobs("settlement-import-jobs");
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     const incoming = Array.from(list).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
     setFiles((prev) => [...prev, ...incoming.filter((f) => !prev.some((p) => p.name === f.name && p.size === f.size))]);
-    setResult(null);
+    setPreview(null);
   };
 
+  /** 미리보기는 바로 결과를 받고, 업로드는 작업으로 넘긴 뒤 진행 상황을 본다 */
   const run = async (dryRun: boolean) => {
     setRunning(dryRun ? "preview" : "import");
     setError(null);
     try {
       const form = new FormData();
       files.forEach((f) => form.append("files", f));
-      const response = await api.post<SettlementImportResponse>(`/settlements/import?dryRun=${dryRun}`, form);
-      setResult(response);
-      if (!dryRun) {
+      if (dryRun) {
+        setPreview(await api.post<SettlementImportResponse>(`/settlements/import?dryRun=true`, form));
+      } else {
+        const created = await api.post<ImportJobsCreated>("/settlements/import-jobs", form);
+        setPreview(null);
+        setRejected(created.rejected);
+        track(created.jobs.map((j) => j.id));
         setFiles([]);
-        notifyUnmappedChanged();
       }
     } catch (e) {
       setError((e as Error).message);
@@ -128,15 +134,90 @@ export default function UploadPage() {
         </div>
       </Card>
 
-      {error && (
+      {(error || pollError) && (
         <div className="mt-4">
-          <Alert>{error}</Alert>
+          <Alert>{error ?? pollError}</Alert>
         </div>
       )}
 
-      {result && <ImportResult result={result} />}
+      {rejected.length > 0 && (
+        <div className="mt-4">
+          <Alert tone="orange">
+            접수하지 않은 파일: {rejected.map((r) => `${r.fileName} (${r.message})`).join(", ")}
+          </Alert>
+        </div>
+      )}
+
+      {preview && <ImportResult result={preview} />}
+      {!preview && jobs.length > 0 && !finished && <JobProgress jobs={jobs} />}
+      {!preview && finished && (
+        <>
+          <ImportResult result={{ dryRun: false, files: jobs.map(toFileResult) }} />
+          <div className="mt-3 text-right">
+            <Button variant="ghost" size="sm" onClick={() => { clear(); setRejected([]); }}>
+              결과 닫기
+            </Button>
+          </div>
+        </>
+      )}
     </>
   );
+}
+
+/** 처리 중인 업로드. 다른 화면으로 가도 서버에서 계속 처리하고, 실패하면 알림이 남는다 */
+function JobProgress({ jobs }: { jobs: ImportJob[] }) {
+  const done = jobs.filter((j) => j.status === "SUCCEEDED" || j.status === "FAILED").length;
+  const failed = jobs.filter((j) => j.status === "FAILED").length;
+  return (
+    <section className="mt-8">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-semibold">처리 중</h2>
+        <Badge tone="blue">
+          {done} / {jobs.length}
+        </Badge>
+        {failed > 0 && <Badge tone="red">실패 {failed}</Badge>}
+      </div>
+      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-1.5 rounded-full bg-brand-500 transition-all" style={{ width: `${(done / jobs.length) * 100}%` }} />
+      </div>
+      <p className="mb-3 text-sm text-slate-500">다른 화면으로 가도 서버에서 계속 처리합니다. 실패하면 왼쪽 알림(종 모양)으로 알려 드립니다.</p>
+      <Card className="overflow-hidden">
+        <ul className="divide-y divide-slate-100 text-sm">
+          {jobs.map((j) => (
+            <li key={j.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+              <span className="truncate">{j.fileName}</span>
+              <span className="shrink-0">
+                {j.status === "QUEUED" && <Badge>대기</Badge>}
+                {j.status === "RUNNING" && <Badge tone="blue">처리 중</Badge>}
+                {j.status === "SUCCEEDED" && <Badge tone="green">완료</Badge>}
+                {j.status === "FAILED" && <Badge tone="red">실패</Badge>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </section>
+  );
+}
+
+/** 작업 결과를 업로드 결과 화면 형식으로 */
+function toFileResult(job: ImportJob): FileImportResult {
+  if (job.settlement) return job.settlement;
+  return {
+    fileName: job.fileName,
+    status: "REJECTED",
+    platform: null,
+    importBatchId: null,
+    message: job.errorMessage,
+    totalRows: 0,
+    insertedRows: 0,
+    duplicateRows: 0,
+    changedRows: 0,
+    skippedRows: 0,
+    unmappedRows: 0,
+    failedRows: 0,
+    issues: [],
+  };
 }
 
 function ImportResult({ result }: { result: SettlementImportResponse }) {

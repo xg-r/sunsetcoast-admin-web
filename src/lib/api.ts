@@ -16,6 +16,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("X-API-Version", API_VERSION);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  // 스프링 시큐리티 CSRF: 쿠키(XSRF-TOKEN) 값을 헤더로 돌려보낸다
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    const token = readCookie("XSRF-TOKEN");
+    if (token) headers.set("X-XSRF-TOKEN", token);
+  }
 
   let response: Response;
   try {
@@ -25,6 +31,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const text = await response.text();
   const body = text ? safeJson(text) : null;
+  if (response.status === 401) notifyUnauthorized();
   if (!response.ok) {
     throw new ApiError(errorMessage(body) ?? fallbackMessage(response.status), response.status, body);
   }
@@ -41,6 +48,21 @@ function errorMessage(body: unknown): string | null {
 
 function fallbackMessage(status: number): string {
   return status >= 500 ? "서버 오류가 발생했습니다. API 서버가 켜져 있는지 확인해 주세요." : `요청이 실패했습니다 (${status})`;
+}
+
+function readCookie(name: string): string | null {
+  const match = document.cookie.split("; ").find((c) => c.startsWith(name + "="));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+}
+
+/** 세션이 끝나면 (401) 로그인 상태를 다시 확인하게 한다 */
+const unauthorizedListeners = new Set<() => void>();
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+function notifyUnauthorized() {
+  unauthorizedListeners.forEach((l) => l());
 }
 
 function safeJson(text: string): unknown {

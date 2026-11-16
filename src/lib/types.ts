@@ -48,7 +48,21 @@ export interface ImportBatch extends ImportCounts {
   createdAt: string;
 }
 
+export interface ImportBatchDeleteResult {
+  importBatchId: number;
+  fileName: string;
+  /** 이 파일이 새로 만들어서 삭제한 정산 행 */
+  deletedLines: number;
+  /** 이 파일이 금액을 바꿔서 이전 값으로 되돌린 정산 행 */
+  restoredLines: number;
+  /** 정산 행이 남지 않아 삭제한 예약 */
+  deletedReservations: number;
+}
+
 export type FeeBasis = "CHARGED" | "CANCELLED" | "NO_STAY" | "NO_RATE";
+
+/** NONE: 0원(지급 없음), UNPAID: 미입금, PAID: 입금 완료, PAID_CHANGED: 입금 뒤 지급액이 바뀜 */
+export type FeePaymentStatus = "NONE" | "UNPAID" | "PAID" | "PAID_CHANGED";
 
 export interface ManagementFee {
   id: number;
@@ -66,6 +80,16 @@ export interface ManagementFee {
   overrideAmount: number | null;
   overrideReason: string | null;
   amount: number;
+  paymentStatus: FeePaymentStatus;
+  /** 관리자가 입금 완료로 표시한 시각 */
+  paidAt: string | null;
+  /** 입금 완료로 표시할 때의 지급액 */
+  paidAmount: number | null;
+  /** 관리자 확인. NONE: 확인 안 함, VERIFIED: 확인함, CHANGED: 확인한 뒤 금액이 바뀜 (다시 확인) */
+  verificationStatus: "NONE" | "VERIFIED" | "CHANGED";
+  verifiedAt: string | null;
+  /** 확인할 때의 지급액 */
+  verifiedAmount: number | null;
 }
 
 export interface MonthlyManagementFee {
@@ -74,6 +98,9 @@ export interface MonthlyManagementFee {
   month: string;
   chargedCount: number;
   totalAmount: number;
+  paidAmount: number;
+  unpaidCount: number;
+  unpaidAmount: number;
   items: ManagementFee[];
 }
 
@@ -198,6 +225,8 @@ export interface DirectQuote {
   nights: { date: string; weekend: boolean; peak: boolean | null; prices: Record<string, number | null> }[];
   conflicts: ReservationConflict[];
   ownerPaid: boolean;
+  /** 객실 ID → 관리비 기본값 (입실일의 단가, 없으면 null) */
+  managementFeeDefaults: Record<string, number | null>;
 }
 
 export interface SettlementFileCoverage {
@@ -208,6 +237,8 @@ export interface SettlementFileCoverage {
   propertyId: number | null;
   issuedOn: string;
   issuedOnFromFileName: boolean;
+  /** 이 파일이 담은 정산일 전부 (떠나요 한 달 치 파일은 여러 개). 이 날짜들의 주를 모두 업로드된 주로 본다 */
+  settlementDates: string[];
   fileName: string;
   totalRows: number;
   insertedRows: number;
@@ -236,4 +267,185 @@ export interface SettlementAccount {
   propertyId: number | null;
   /** 정산 파일이 있어야 하는 첫 주 (월요일) */
   startedOn: string;
+}
+
+export type UserRole = "SUPER_ADMIN" | "SITE_MANAGER" | "USER";
+
+export interface Me {
+  id: number;
+  provider: "NAVER" | "KAKAO" | "DEV";
+  /** 첫 슈퍼어드민 설정(AUTH_SUPER_ADMINS)에 적는 값 */
+  providerKey: string;
+  nickname: string | null;
+  email: string | null;
+  role: UserRole;
+}
+
+export interface AdminUser extends Me {
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+// ── 계좌 거래내역 (BANK-01) ──
+
+export interface BankAccount {
+  id: number;
+  accountNumber: string;
+  holderName: string | null;
+  businessOwnerId: number | null;
+}
+
+export interface BankUpload {
+  id: number;
+  bankAccountId: number;
+  fileName: string;
+  periodFrom: string | null;
+  periodTo: string | null;
+  totalRows: number;
+  insertedRows: number;
+  duplicateRows: number;
+  createdAt: string;
+}
+
+export interface BankImportResult {
+  fileName: string;
+  status: "IMPORTED" | "REJECTED";
+  message: string | null;
+  upload: BankUpload | null;
+  account: BankAccount | null;
+  balanceBreaks: string[];
+}
+
+export type BankCategoryGroup = "REVENUE" | "NON_OPERATING_IN" | "EXPENSE" | "FINANCING" | "TRANSFER";
+
+export interface BankCategoryInfo {
+  code: string;
+  label: string;
+  group: BankCategoryGroup;
+  groupLabel: string;
+}
+
+export interface BankTransaction {
+  id: number;
+  transactedAt: string;
+  withdrawal: number;
+  deposit: number;
+  balance: number;
+  description: string;
+  counterpartyName: string | null;
+  counterpartyBank: string | null;
+  transactionType: string | null;
+  category: string;
+  categorySource: "AUTO" | "MANUAL";
+  note: string | null;
+}
+
+export interface BankAnalysis {
+  account: BankAccount;
+  from: string;
+  to: string;
+  months: {
+    month: string;
+    openingBalance: number | null;
+    closingBalance: number | null;
+    deposits: number;
+    withdrawals: number;
+    net: number;
+    revenue: number;
+    expense: number;
+    transactionCount: number;
+    byCategory: Record<string, number>;
+  }[];
+  categories: { category: string; amount: number; count: number; share: number | null }[];
+  otaDeposits: {
+    transactionId: number;
+    transactedAt: string;
+    amount: number;
+    description: string;
+    platform: Platform;
+    importBatchId: number | null;
+    fileName: string | null;
+    settlementAccount: string | null;
+    issuedOn: string | null;
+  }[];
+  feeComparisons: {
+    feeMonth: string;
+    withdrawnTotal: number;
+    calculatedTotal: number | null;
+    difference: number | null;
+    paidTotal: number | null;
+    unpaidCount: number | null;
+    withdrawals: BankTransaction[];
+  }[];
+  insights: { level: "GOOD" | "INFO" | "WARN"; title: string; detail: string }[];
+}
+
+// ── 매출 전년 동월 비교 ──
+
+export interface RevenueTotals {
+  gross: number;
+  net: number;
+  roomNights: number;
+  cancellationFees: number;
+  adr: number | null;
+  byPlatform: Partial<Record<Platform, number>>;
+}
+
+export interface RevenueComparison {
+  year: number;
+  propertyId: number | null;
+  months: {
+    month: string;
+    current: RevenueTotals | null;
+    previous: RevenueTotals | null;
+    grossChange: number | null;
+    netChange: number | null;
+    roomNightsChange: number | null;
+    adrChange: number | null;
+  }[];
+  comparableMonths: string[];
+  comparableCurrent: RevenueTotals | null;
+  comparablePrevious: RevenueTotals | null;
+  comparableGrossChange: number | null;
+  comparableNetChange: number | null;
+}
+
+// ── 업로드 작업 (비동기) · 알림 ──
+
+export type ImportJobStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+
+export interface ImportJob {
+  id: number;
+  kind: "SETTLEMENT" | "BANK";
+  fileName: string;
+  status: ImportJobStatus;
+  errorMessage: string | null;
+  /** 정산 파일 처리 결과 (끝난 뒤) */
+  settlement: FileImportResult | null;
+  /** 계좌 거래내역 처리 결과 (성공한 뒤) */
+  bank: { uploadId: number; bankAccountId: number; totalRows: number; insertedRows: number; duplicateRows: number; balanceBreaks: string[] } | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface ImportJobsCreated {
+  jobs: ImportJob[];
+  /** 접수하지 않은 파일 (빈 파일, 같은 파일이 이미 대기 중 등) */
+  rejected: { fileName: string; message: string }[];
+}
+
+export interface NotificationItem {
+  id: number;
+  level: "ERROR" | "WARN" | "INFO";
+  title: string;
+  message: string | null;
+  link: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface NotificationInbox {
+  unreadCount: number;
+  items: NotificationItem[];
 }
