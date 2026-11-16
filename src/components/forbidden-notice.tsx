@@ -28,6 +28,22 @@ const notices: { path: string; notice: Notice }[] = [
     },
   },
   {
+    path: "/bank",
+    notice: {
+      title: "계좌 분석은 본사 전용 화면입니다",
+      reason: "사업자 계좌의 입출금 내역과 잔액이 그대로 보이는 화면이라 슈퍼어드민(본사)만 열어 볼 수 있게 해 두었습니다.",
+      next: "현장 비용 지출이나 관리비 입금 여부가 궁금하시면 본사에 문의해 주세요.",
+    },
+  },
+  {
+    path: "/revenue",
+    notice: {
+      title: "매출 분석은 본사 전용 화면입니다",
+      reason: "업소별 매출과 정산 금액을 비교하는 경영 자료라 슈퍼어드민(본사)만 열어 볼 수 있게 해 두었습니다.",
+      next: "예약 현황은 '객실 현황', 채널별 흐름은 '판매 채널'에서 볼 수 있습니다.",
+    },
+  },
+  {
     path: "/admin",
     notice: {
       title: "사용자 관리는 본사 전용 화면입니다",
@@ -70,7 +86,7 @@ export function ForbiddenNotice({ pathname, role }: { pathname: string; role: Us
             객실 현황 보기
           </Link>
           <Link
-            href="/"
+            href="/settlements/upload"
             className="inline-flex h-9 items-center rounded-lg bg-brand-600 px-3.5 text-sm font-medium text-white hover:bg-brand-700"
           >
             처음 화면으로

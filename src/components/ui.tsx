@@ -186,3 +186,15 @@ export function SearchInput({ value, onChange, placeholder }: { value: string; o
     </div>
   );
 }
+
+/**
+ * 날짜 입력칸. 최솟값·최댓값을 정해 두어야 브라우저(크롬·엣지)가 연도를 4자리로 받고,
+ * 키보드로 '20261116'을 치면 연도 4자리 뒤 월·일로 넘어간다. (없으면 연도가 6자리까지 늘어나 '202611'처럼 된다)
+ */
+export function DateInput({
+  min = "2000-01-01",
+  max = "2099-12-31",
+  ...props
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">) {
+  return <input type="date" min={min} max={max} {...props} />;
+}

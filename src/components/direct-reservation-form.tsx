@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { propertyShortName } from "@/components/property-tabs";
 import { EXTERNAL_ROOM_NAMES } from "@/components/room-filter";
-import { Alert, Badge, Button, Segmented, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, DateInput, Segmented, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { addDays, formatDate, formatWon, paymentMethodLabel, platformLabel, roomLabel, roomTypeLabel } from "@/lib/format";
 import type { DirectQuote, PaymentMethod, Property, ReservationConflict, ReservationDetail, Room } from "@/lib/types";
@@ -55,6 +55,11 @@ export function DirectReservationForm({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(r?.paymentMethod ?? "BANK_TRANSFER");
   const [paid, setPaid] = useState(r?.paid ?? false);
   const [memo, setMemo] = useState(r?.memo ?? "");
+  // 객실별 현장 관리비. 기본은 단가, 현장 결제처럼 관리비를 주지 않으면 고친다 (입금 상태는 미입금 그대로)
+  const [fees, setFees] = useState<Record<string, string>>(() =>
+    Object.fromEntries((editing?.managementFees ?? []).map((f) => [String(f.roomId), String(f.amount)])),
+  );
+  const [feeTouched, setFeeTouched] = useState<Set<string>>(() => new Set(Object.keys(fees)));
   const [quote, setQuote] = useState<{ key: string; data: DirectQuote } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +106,15 @@ export function DirectReservationForm({
       .then((data) => {
         if (cancelled) return;
         setQuote({ key: quoteKey, data });
+        setFees((prev) => {
+          const next = { ...prev };
+          roomIds.forEach((roomId) => {
+            const key = String(roomId);
+            const suggested = data.managementFeeDefaults?.[key];
+            if (!feeTouched.has(key)) next[key] = suggested != null ? String(suggested) : "";
+          });
+          return next;
+        });
         setPrices((prev) => {
           const next = { ...prev };
           data.nights.forEach((n) =>
@@ -117,7 +131,7 @@ export function DirectReservationForm({
     return () => {
       cancelled = true;
     };
-    // touched는 제안을 덮어쓸지 판단할 때만 읽는다
+    // touched·feeTouched는 제안을 덮어쓸지 판단할 때만 읽는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteKey]);
 
@@ -128,6 +142,13 @@ export function DirectReservationForm({
   const roomsById = new Map(rooms.map((room) => [room.id, room]));
   const ownerPaid = roomIds.some((id) => EXTERNAL_ROOM_NAMES.includes(roomsById.get(id)?.name ?? ""));
   const valid = roomIds.length > 0 && dates.length > 0 && bookerName.trim() !== "" && !missingPrice && discountValue <= subtotal;
+  const paidFees = new Map((editing?.managementFees ?? []).filter((f) => f.paidAt !== null).map((f) => [f.roomId, f]));
+  const feeDefault = (roomId: number) => currentQuote?.managementFeeDefaults?.[String(roomId)] ?? null;
+  const setFee = (roomId: number, value: string) => {
+    setFees({ ...fees, [String(roomId)]: value });
+    setFeeTouched(new Set(feeTouched).add(String(roomId)));
+  };
+  const feeTotal = roomIds.reduce((sum, id) => sum + (Number(fees[String(id)]) || 0), 0);
 
   const toggleRoom = (id: number) => setRoomIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -160,6 +181,10 @@ export function DirectReservationForm({
       paid,
       memo: memo.trim() || null,
       allowOverlap,
+      // 비워 둔 객실은 보내지 않는다 (단가대로 자동 계산)
+      managementFees: roomIds
+        .filter((roomId) => (fees[String(roomId)] ?? "") !== "")
+        .map((roomId) => ({ roomId, amount: Number(fees[String(roomId)]) })),
     };
     try {
       const detail = r
@@ -239,7 +264,7 @@ export function DirectReservationForm({
         <Section title="숙박">
           <div className="grid grid-cols-2 gap-3">
             <Field label="입실일">
-              <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className={inputClass} />
+              <DateInput value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className={inputClass} />
             </Field>
             <Field label="박수">
               <div className="flex items-center gap-1">
@@ -328,6 +353,59 @@ export function DirectReservationForm({
           </Section>
         )}
 
+        {roomIds.length > 0 && (
+          <Section title="현장 관리비">
+            <ul className="space-y-2">
+              {roomIds.map((roomId) => {
+                const key = String(roomId);
+                const value = fees[key] ?? "";
+                const base = feeDefault(roomId);
+                const changed = base !== null && value !== "" && Number(value) !== base;
+                const paidFee = paidFees.get(roomId);
+                return (
+                  <li key={roomId} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="w-24 shrink-0 text-sm font-medium">{roomLabel(roomsById.get(roomId)?.name ?? key)}</span>
+                    <div className="relative w-36">
+                      <input
+                        inputMode="numeric"
+                        value={value}
+                        disabled={!!paidFee}
+                        onChange={(e) => setFee(roomId, e.target.value.replace(/\D/g, ""))}
+                        placeholder={base !== null ? String(base) : "단가 없음"}
+                        aria-label={`${roomLabel(roomsById.get(roomId)?.name ?? key)} 관리비`}
+                        className={`${inputClass} pr-7 text-right ${changed ? "border-amber-400 bg-amber-50 font-semibold" : ""}`}
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">원</span>
+                    </div>
+                    {paidFee ? (
+                      <span className="text-xs text-slate-500">입금 완료된 관리비라 바꿀 수 없습니다</span>
+                    ) : (
+                      <span className="flex items-center gap-2 text-xs">
+                        {base !== null && <span className="text-slate-500">기본 {formatWon(base)}</span>}
+                        {changed && <Badge tone="orange">수정됨</Badge>}
+                        {value !== "0" && (
+                          <button type="button" onClick={() => setFee(roomId, "0")} className="rounded-md border border-slate-300 px-2 py-1 text-slate-600 hover:bg-slate-50">
+                            관리비 없음 (0원)
+                          </button>
+                        )}
+                        {changed && base !== null && (
+                          <button type="button" onClick={() => setFee(roomId, String(base))} className="font-medium text-brand-700 hover:underline">
+                            기본값으로
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-2 text-xs text-slate-500">
+              기본값은 객실 관리비 단가입니다. 현장 결제라 관리비를 주지 않으면 0원으로 고치세요. 입금 상태는 &lsquo;미입금&rsquo;으로 남고, 현장에 입금한 뒤 관리비
+              화면에서 입금 완료로 표시합니다.
+            </p>
+          </Section>
+        )}
+
         <Section title="예약자">
           <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3">
             <Field label="이름">
@@ -374,6 +452,7 @@ export function DirectReservationForm({
           <Row label="숙박 금액" value={formatWon(subtotal)} />
           {discountValue > 0 && <Row label="할인" value={`- ${formatWon(discountValue)}`} />}
           <Row label={ownerPaid ? "결제 금액 (소유주 입금)" : "결제 금액"} value={formatWon(subtotal - discountValue)} strong />
+          {roomIds.length > 0 && <Row label="현장 관리비 (미입금)" value={formatWon(feeTotal)} />}
         </dl>
         {discountValue > subtotal && <p className="mb-2 text-xs text-rose-600">할인이 숙박 금액보다 큽니다.</p>}
         {error && (

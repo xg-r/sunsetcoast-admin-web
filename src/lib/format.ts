@@ -1,4 +1,4 @@
-import type { FeeBasis, PaymentMethod, Platform, SalesChannel, SettlementLineType } from "./types";
+import type { FeeBasis, FeePaymentStatus, PaymentMethod, Platform, SalesChannel, SettlementLineType } from "./types";
 
 const won = new Intl.NumberFormat("ko-KR");
 
@@ -26,10 +26,25 @@ export const paymentMethodLabel: Record<PaymentMethod, string> = {
 };
 
 export const feeBasisLabel: Record<FeeBasis, string> = {
-  CHARGED: "지급",
+  CHARGED: "지급 대상",
   CANCELLED: "취소",
   NO_STAY: "투숙 없음",
   NO_RATE: "단가 없음",
+};
+
+export const feePaymentLabel: Record<FeePaymentStatus, string> = {
+  NONE: "-",
+  UNPAID: "미입금",
+  PAID: "입금 완료",
+  PAID_CHANGED: "입금 후 금액 변경",
+};
+
+/** 미입금은 평소 상태라 회색, 입금 완료는 '확인됨'(초록)과 헷갈리지 않게 파랑 */
+export const feePaymentTone: Record<FeePaymentStatus, "gray" | "blue" | "red"> = {
+  NONE: "gray",
+  UNPAID: "gray",
+  PAID: "blue",
+  PAID_CHANGED: "red",
 };
 
 /** DB 객실 코드를 화면용 이름으로 (RESORT_201 → 리조트 201) */

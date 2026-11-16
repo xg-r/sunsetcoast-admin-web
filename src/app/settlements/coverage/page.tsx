@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { propertyShortName } from "@/components/property-tabs";
-import { Alert, Badge, Button, Card, EmptyState, Modal, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
+import { Alert, Badge, Button, Card, DateInput, EmptyState, Modal, PageHeader, Segmented, Spinner, Stat } from "@/components/ui";
 import { addDays, formatDateTime, formatNumber, platformLabel } from "@/lib/format";
 import type { Platform, Property, SettlementAccount, SettlementFileCoverage, SettlementWeekCheck } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -55,6 +55,11 @@ interface Picked {
 }
 
 /** 그 날짜가 속한 주의 월요일 */
+/** 파일이 덮는 가장 이른 주 */
+function firstWeekOf(f: SettlementFileCoverage): string {
+  return f.settlementDates.map(weekOf).reduce((min, w) => (w < min ? w : min), weekOf(f.issuedOn));
+}
+
 function weekOf(date: string): string {
   const day = new Date(date + "T00:00:00").getDay();
   return addDays(date, -((day + 6) % 7));
@@ -97,7 +102,8 @@ export default function CoveragePage() {
     files: SettlementFileCoverage[];
     check?: SettlementWeekCheck;
   } => {
-    const files = account.files.filter((f) => weekOf(f.issuedOn) === week);
+    // 한 달 치를 한 번에 받은 떠나요 파일은 여러 주를 덮는다
+    const files = account.files.filter((f) => f.settlementDates.some((d) => weekOf(d) === week));
     if (files.length) {
       if (files.every((f) => f.insertedRows === 0 && f.duplicateRows > 0)) return { state: "STALE", files };
       if (files.some((f) => f.unmappedRows + f.failedRows > 0)) return { state: "WARN", files };
@@ -373,8 +379,9 @@ export default function CoveragePage() {
       )}
 
       <p className="text-xs text-slate-400">
-        정산 계정과 정산일은 파일명에서 읽습니다 (떠나요·여기어때 <code>정산내역_업소명_날짜</code>, NOL <code>정산상세내역_업소_계정_MMdd</code>). 파일명을
-        바꾸면 계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
+        정산 계정과 정산일은 파일명에서 읽습니다 (떠나요·여기어때 <code>정산내역_업소명_날짜</code>, NOL <code>정산상세내역_업소_계정_MMdd</code>).
+        떠나요에서 받은 그대로의 <code>AdjustCalendar(…).xls</code>는 파일 안의 사업자번호로 계정을, 이용일로 정산일(이용 주의 다음 주 화요일)을
+        추정합니다. 그 밖에 이름을 바꾼 파일은 계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
       </p>
       {adding && (
         <AddAccountDialog
@@ -463,7 +470,11 @@ function CellDetail({
           {files.map((f) => (
             <li key={f.importBatchId} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-slate-600">
               <span className="max-w-full truncate text-slate-800">{f.fileName}</span>
-              <span className="text-xs whitespace-nowrap">정산일 {shortDate(f.issuedOn)}</span>
+              <span className="text-xs whitespace-nowrap">
+                {f.settlementDates.length > 1
+                  ? `한 달 치 파일 · 정산일 ${f.settlementDates.map(shortDate).join(", ")}`
+                  : `정산일 ${shortDate(f.issuedOn)}`}
+              </span>
               <span className="text-xs whitespace-nowrap">
                 {formatNumber(f.totalRows)}행 · 신규 {f.insertedRows}
                 {f.duplicateRows > 0 && ` · 중복 ${f.duplicateRows}`}
@@ -517,7 +528,7 @@ function CellDetail({
               </Button>
             </form>
           ) : (
-            <p className="text-xs text-slate-400">파일명에서 계정을 읽지 못한 묶음이라 확인 완료로 표시할 수 없습니다.</p>
+            <p className="text-xs text-slate-400">파일명·파일 내용으로 계정을 알 수 없는 묶음이라 확인 완료로 표시할 수 없습니다.</p>
           )}
         </div>
       ) : (
@@ -525,7 +536,7 @@ function CellDetail({
       )}
       {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
       {files.some((f) => !f.issuedOnFromFileName) && (
-        <p className="mt-1 text-xs text-slate-400">파일명에서 정산일을 읽지 못해 정산 행·업로드일로 추정했습니다.</p>
+        <p className="mt-1 text-xs text-slate-400">파일명에서 정산일을 읽지 못해 파일 내용(이용일)·정산 행·업로드일로 추정했습니다.</p>
       )}
     </div>
   );
@@ -656,7 +667,7 @@ function AddAccountDialog({
         </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-500">시작 주 (이 날짜가 속한 주부터 파일이 있어야 함)</span>
-          <input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} required className={input} />
+          <DateInput value={startedOn} onChange={(e) => setStartedOn(e.target.value)} required className={input} />
         </label>
         {error && <Alert>{error}</Alert>}
         <div className="flex justify-end gap-2">
@@ -696,12 +707,12 @@ function buildAccounts(files: SettlementFileCoverage[], registered: SettlementAc
       name,
       account: f.account,
       propertyId: f.propertyId,
-      firstWeek: weekOf(f.issuedOn),
+      firstWeek: firstWeekOf(f),
       files: [],
       registeredId: null,
     };
     account.files.push(f);
-    if (weekOf(f.issuedOn) < account.firstWeek) account.firstWeek = weekOf(f.issuedOn);
+    if (firstWeekOf(f) < account.firstWeek) account.firstWeek = firstWeekOf(f);
     if (account.propertyId === null) account.propertyId = f.propertyId;
     map.set(key, account);
   });

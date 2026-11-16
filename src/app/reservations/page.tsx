@@ -11,6 +11,8 @@ import { useMe } from "@/lib/auth";
 import {
   addDays,
   feeBasisLabel,
+  feePaymentLabel,
+  feePaymentTone,
   formatDate,
   formatDateTime,
   formatMonth,
@@ -57,7 +59,7 @@ export default function ReservationsPage() {
       (r) =>
         r.rooms.some((room) => scope.selectedRooms.has(room.id)) &&
         (platform === "ALL" || r.source === platform) &&
-        (status === "ALL" || (status === "UNPAID" ? r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid : r.status === status)) &&
+        (status === "ALL" || (status === "UNPAID" ? isUnpaid(r) : r.status === status)) &&
         (!q ||
           [r.bookerName, r.reservationNumber, ...r.rooms.flatMap((room) => [room.name, roomLabel(room.name)])].some((v) =>
             v?.toLowerCase().replace(/\s/g, "").includes(q),
@@ -71,6 +73,10 @@ export default function ReservationsPage() {
       return sort.desc ? -cmp : cmp;
     });
   }, [all, platform, status, query, sort, scope.selectedRooms]);
+
+  // 손님 입금을 아직 받지 않은 직접 입력 예약 (이 달, 업소·객실 범위 안)
+  const unpaid = useMemo(() => all.filter((r) => isUnpaid(r) && r.rooms.some((room) => scope.selectedRooms.has(room.id))), [all, scope.selectedRooms]);
+  const unpaidTotal = unpaid.reduce((sum, r) => sum + r.netAmount, 0);
 
   const stats = useMemo(() => {
     const confirmed = rows.filter((r) => r.status === "CONFIRMED");
@@ -175,6 +181,25 @@ export default function ReservationsPage() {
         <SearchInput value={query} onChange={setQuery} placeholder="예약자, 예약번호, 객실" />
       </div>
 
+      {unpaid.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm">
+          <p className="text-rose-800">
+            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-rose-500 align-middle" aria-hidden />
+            손님 입금을 아직 받지 않은 예약 <strong>{unpaid.length}건</strong> · {formatWon(unpaidTotal)}
+            <span className="ml-2 text-xs text-rose-700">빨간 줄로 표시했습니다. 입금을 받으면 예약을 열어 &lsquo;입금 완료&rsquo;로 고쳐 주세요.</span>
+          </p>
+          {status !== "UNPAID" ? (
+            <button type="button" onClick={() => setStatus("UNPAID")} className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+              미입금만 보기
+            </button>
+          ) : (
+            <button type="button" onClick={() => setStatus("ALL")} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100">
+              전체 보기
+            </button>
+          )}
+        </div>
+      )}
+
       <Card className="overflow-hidden">
         {!data && loading ? (
           <EmptyState>
@@ -201,11 +226,12 @@ export default function ReservationsPage() {
                   <tr
                     key={r.id}
                     onClick={() => setSelectedId(r.id)}
-                    className={`cursor-pointer transition-colors hover:bg-slate-50 ${selectedId === r.id ? "bg-brand-50/60" : ""} ${
-                      r.status === "CANCELLED" ? "text-slate-400" : ""
-                    }`}
+                    className={`cursor-pointer transition-colors ${
+                      selectedId === r.id ? "bg-brand-50/60" : isUnpaid(r) ? "bg-rose-50 hover:bg-rose-100/70" : "hover:bg-slate-50"
+                    } ${r.status === "CANCELLED" ? "text-slate-400" : ""}`}
                   >
-                    <td className="whitespace-nowrap px-4 py-3">
+                    {/* 미입금 예약은 왼쪽에 빨간 선 */}
+                    <td className={`whitespace-nowrap border-l-4 px-4 py-3 ${isUnpaid(r) ? "border-l-rose-500" : "border-l-transparent"}`}>
                       <p className={r.status === "CANCELLED" ? "" : "text-slate-900"}>{formatDate(r.baseDate)}</p>
                       <p className="text-xs text-slate-400">{r.checkInDate ? `${r.nights ?? "-"}박` : "매출인식일"}</p>
                     </td>
@@ -223,7 +249,9 @@ export default function ReservationsPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {r.status === "CANCELLED" && <Badge tone="red">취소</Badge>}
-                        {r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid && <Badge tone="orange">미입금</Badge>}
+                        {isUnpaid(r) && (
+                          <span className="inline-flex items-center rounded-md bg-rose-600 px-1.5 py-0.5 text-xs font-semibold text-white">미입금</span>
+                        )}
                         {r.paymentReceiver === "OWNER" && <Badge>소유주 입금</Badge>}
                         {r.peakSeason && <Badge tone="orange">성수기</Badge>}
                         {r.weekend && <Badge tone="violet">주말</Badge>}
@@ -515,8 +543,11 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
                 <div key={fee.id} className="flex items-center justify-between px-4 py-3 text-sm">
                   <div className="flex items-center gap-2">
                     {multiRoom && <span className="font-medium">{roomLabel(fee.roomName)}</span>}
-                    <Badge tone={fee.basis === "CHARGED" ? "green" : fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
+                    <Badge tone={fee.basis === "NO_RATE" ? "orange" : "gray"}>{feeBasisLabel[fee.basis]}</Badge>
                     {fee.overrideAmount !== null && <span className="text-xs text-slate-500">수정됨 · {fee.overrideReason}</span>}
+                    {fee.paymentStatus !== "NONE" && <Badge tone={feePaymentTone[fee.paymentStatus]}>{feePaymentLabel[fee.paymentStatus]}</Badge>}
+                    {fee.verificationStatus === "VERIFIED" && <Badge tone="green">✓ 확인됨</Badge>}
+                    {fee.verificationStatus === "CHANGED" && <Badge tone="orange">다시 확인</Badge>}
                   </div>
                   <span className="font-semibold">{formatWon(fee.amount)}</span>
                 </div>
@@ -602,4 +633,9 @@ function reservedAtLabel(r: Reservation): string {
   if (!r.checkInDate) return text;
   const days = Math.round((Date.parse(r.checkInDate + "T00:00:00Z") - Date.parse(r.reservedAt.slice(0, 10) + "T00:00:00Z")) / 86_400_000);
   return days >= 0 ? `${text} · 입실 ${days === 0 ? "당일" : `${days}일 전`}` : text;
+}
+
+/** 손님 입금을 아직 받지 않은 예약 (직접 입력한 투숙 예약만. OTA 예약은 플랫폼이 정산한다) */
+function isUnpaid(r: Reservation): boolean {
+  return r.source === "DIRECT" && r.status === "CONFIRMED" && !r.paid;
 }

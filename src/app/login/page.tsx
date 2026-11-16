@@ -9,12 +9,27 @@ import type { UserRole } from "@/lib/types";
 
 const noopSubscribe = () => () => {};
 
-/** 로그인 실패로 돌아오면 ?error 가 붙는다 */
-function useLoginError(): boolean {
+const PROVIDER_LABEL: Record<string, string> = { NAVER: "네이버", KAKAO: "카카오" };
+
+/**
+ * 로그인 실패로 돌아오면 ?error 가 붙는다.
+ * 같은 이메일로 다른 플랫폼에 가입돼 있으면 ?error=already_registered&provider=KAKAO
+ */
+function useLoginError(): string | null {
   return useSyncExternalStore(
     noopSubscribe,
-    () => new URLSearchParams(window.location.search).has("error"),
-    () => false,
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("error")) return null;
+      if (params.get("error") === "already_registered") {
+        const provider = PROVIDER_LABEL[params.get("provider") ?? ""];
+        return provider
+          ? `이미 가입된 사용자입니다. 이 이메일은 ${provider}(으)로 가입돼 있으니 ${provider}로 로그인해 주세요.`
+          : "이미 가입된 사용자입니다. 처음 가입한 플랫폼으로 로그인해 주세요.";
+      }
+      return "로그인하지 못했습니다. 다시 시도해 주세요.";
+    },
+    () => null,
   );
 }
 
@@ -31,7 +46,7 @@ export default function LoginPage() {
   const [devError, setDevError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (state.status === "signed-in") router.replace("/");
+    if (state.status === "signed-in") router.replace("/settlements/upload");
   }, [state.status, router]);
 
   const devLogin = async (role: UserRole) => {
@@ -56,7 +71,7 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          {failed && <Alert>로그인하지 못했습니다. 다시 시도해 주세요.</Alert>}
+          {failed && <Alert>{failed}</Alert>}
           <a
             href="/oauth2/authorization/naver"
             className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#03C75A] text-[15px] font-semibold text-white transition-opacity hover:opacity-90"

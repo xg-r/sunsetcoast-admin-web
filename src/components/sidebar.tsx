@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { roleLabel, useAuth, useMe } from "@/lib/auth";
+import { NotificationBell } from "@/components/notification-bell";
 import { onUnmappedChanged } from "@/lib/events";
 import type { UnmappedRow } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -32,11 +33,16 @@ const groups = [
     items: [
       { href: "/channels", label: "판매 채널", icon: ChartIcon },
       { href: "/booking-lead", label: "예약 시점", icon: ClockIcon },
+      { href: "/revenue", label: "매출 전년 비교", icon: ChartIcon, superAdminOnly: true },
+      { href: "/bank", label: "계좌 분석", icon: WalletIcon, superAdminOnly: true },
     ],
   },
   {
     title: "설정",
-    items: [{ href: "/admin/users", label: "사용자 관리", icon: UsersIcon, superAdminOnly: true }],
+    items: [
+      { href: "/admin/users", label: "사용자 관리", icon: UsersIcon, superAdminOnly: true },
+      { href: "/admin/login-events", label: "로그인 기록", icon: ClockIcon, superAdminOnly: true },
+    ],
   },
 ];
 
@@ -60,7 +66,12 @@ export function Sidebar() {
           <p className="text-xs text-slate-500">관리자</p>
         </div>
         {me && (
-          <div className="ml-auto flex items-center gap-2 md:hidden">
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
+        )}
+        {me && (
+          <div className="flex items-center gap-2 md:hidden">
             <span className="text-xs text-slate-500">
               {me.nickname ?? "사용자"} · {roleLabel[me.role]}
             </span>
