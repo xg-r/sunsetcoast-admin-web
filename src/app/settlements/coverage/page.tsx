@@ -47,6 +47,8 @@ interface Account {
   files: SettlementFileCoverage[];
   /** 등록한 정산 계정이면 그 ID */
   registeredId: number | null;
+  /** 등록한 떠나요 계정의 사업자번호 */
+  businessNumber: string | null;
 }
 
 interface Picked {
@@ -284,6 +286,9 @@ export default function CoveragePage() {
                           <span className="max-w-44 truncate text-slate-700" title={account.name}>
                             {account.name}
                           </span>
+                          {account.registeredId !== null && account.platform === "DDNAYO" && (
+                            <BusinessNumberButton account={account} onDone={reloadAccounts} />
+                          )}
                           {account.registeredId !== null && !account.files.length && (
                             <RemoveAccount account={account} onDone={reloadAccounts} />
                           )}
@@ -381,7 +386,7 @@ export default function CoveragePage() {
       <p className="text-xs text-slate-400">
         정산 계정과 정산일은 파일명에서 읽습니다 (떠나요·여기어때 <code>정산내역_업소명_날짜</code>, NOL <code>정산상세내역_업소_계정_MMdd</code>).
         떠나요에서 받은 그대로의 <code>AdjustCalendar(…).xls</code>는 파일 안의 사업자번호로 계정을, 이용일로 정산일(이용 주의 다음 주 화요일)을
-        추정합니다. 그 밖에 이름을 바꾼 파일은 계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
+        추정합니다. 떠나요 계정에 사업자번호를 지정해 두면 그 번호의 원본 파일이 그 계정으로 묶이고, 지정하지 않으면 &lsquo;사업자 번호&rsquo; 계정이 따로 생깁니다. 그 밖에 이름을 바꾼 파일은 계정을 알 수 없어 &lsquo;계정 미확인&rsquo;으로 묶입니다. 정산일이 속한 주(월요일 시작)에 표시합니다.
       </p>
       {adding && (
         <AddAccountDialog
@@ -571,6 +576,34 @@ function BulkCheck({ account, weeks, onDone }: { account: Account; weeks: string
   );
 }
 
+/** 떠나요 등록 계정의 사업자번호. AdjustCalendar 원본 파일이 이 번호로 계정에 묶인다 */
+function BusinessNumberButton({ account, onDone }: { account: Account; onDone: () => void }) {
+  const change = async () => {
+    const input = prompt(
+      `${platformLabel[account.platform]} · ${account.name}\n떠나요 사업자번호 (AdjustCalendar 파일 안의 사업자번호, 비우면 지움)`,
+      account.businessNumber ?? "",
+    );
+    if (input === null) return;
+    try {
+      await api.put(`/settlements/coverage/accounts/${account.registeredId}/business-number`, { businessNumber: input.trim() || null });
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      onDone();
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={change}
+      className={`rounded px-1 text-xs hover:bg-slate-100 ${account.businessNumber ? "text-slate-400" : "text-amber-600"}`}
+      title="AdjustCalendar 원본 파일을 이 계정에 묶는 사업자번호"
+    >
+      {account.businessNumber ?? "사업자번호 지정"}
+    </button>
+  );
+}
+
 /** 파일을 아직 올리지 않은 등록 계정만 지울 수 있다 */
 function RemoveAccount({ account, onDone }: { account: Account; onDone: () => void }) {
   const remove = async () => {
@@ -611,6 +644,7 @@ function AddAccountDialog({
   const [account, setAccount] = useState("");
   const [propertyId, setPropertyId] = useState<number | null>(properties[0]?.id ?? null);
   const [startedOn, setStartedOn] = useState(defaultWeek ?? "");
+  const [businessNumber, setBusinessNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -618,7 +652,13 @@ function AddAccountDialog({
     setSaving(true);
     setError(null);
     try {
-      await api.post("/settlements/coverage/accounts", { platform, account, propertyId, startedOn });
+      await api.post("/settlements/coverage/accounts", {
+        platform,
+        account,
+        propertyId,
+        startedOn,
+        businessNumber: platform === "DDNAYO" ? businessNumber.trim() || null : null,
+      });
       onSaved();
     } catch (e) {
       setError((e as Error).message);
@@ -655,6 +695,13 @@ function AddAccountDialog({
           <input value={account} onChange={(e) => setAccount(e.target.value)} required className={input} placeholder="서귀포 스테이 디앤디 풀빌라" />
           <span className="mt-1 block text-xs text-slate-400">{FILE_NAME_HINT[platform]}</span>
         </label>
+        {platform === "DDNAYO" && (
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">사업자번호 (선택)</span>
+            <input value={businessNumber} onChange={(e) => setBusinessNumber(e.target.value)} className={input} placeholder="278-27-01574" inputMode="numeric" />
+            <span className="mt-1 block text-xs text-slate-400">떠나요에서 받은 그대로의 AdjustCalendar 파일을 이 계정으로 묶습니다</span>
+          </label>
+        )}
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-500">업소</span>
           <select value={propertyId ?? ""} onChange={(e) => setPropertyId(e.target.value ? Number(e.target.value) : null)} className={input}>
@@ -696,6 +743,7 @@ function buildAccounts(files: SettlementFileCoverage[], registered: SettlementAc
       firstWeek: weekOf(r.startedOn),
       files: [],
       registeredId: r.id,
+      businessNumber: r.businessNumber,
     });
   });
   files.forEach((f) => {
@@ -710,6 +758,7 @@ function buildAccounts(files: SettlementFileCoverage[], registered: SettlementAc
       firstWeek: firstWeekOf(f),
       files: [],
       registeredId: null,
+      businessNumber: null,
     };
     account.files.push(f);
     if (firstWeekOf(f) < account.firstWeek) account.firstWeek = firstWeekOf(f);

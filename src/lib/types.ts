@@ -268,6 +268,8 @@ export interface SettlementAccount {
   propertyId: number | null;
   /** 정산 파일이 있어야 하는 첫 주 (월요일) */
   startedOn: string;
+  /** 떠나요 사업자번호 (278-27-01574). AdjustCalendar 원본 파일을 이 계정에 붙인다 */
+  businessNumber: string | null;
 }
 
 export type UserRole = "SUPER_ADMIN" | "SITE_MANAGER" | "USER";
