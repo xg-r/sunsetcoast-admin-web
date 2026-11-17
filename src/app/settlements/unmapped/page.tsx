@@ -171,8 +171,9 @@ function UnmappedCard({
               }
             />
             <Info label="구분" value={row.lineType ? lineTypeLabel[row.lineType] : "-"} />
-            <Info label="매출" value={formatWon(row.grossAmount)} />
-            <Info label="정산금액" value={<span className="font-semibold">{formatWon(row.netAmount)}</span>} />
+            {/* 금액은 슈퍼어드민에게만 온다 (현장관리자는 객실만 지정) */}
+            {row.grossAmount !== null && <Info label="매출" value={formatWon(row.grossAmount)} />}
+            {row.netAmount !== null && <Info label="정산금액" value={<span className="font-semibold">{formatWon(row.netAmount)}</span>} />}
           </dl>
         </div>
 
