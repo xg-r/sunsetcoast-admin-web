@@ -549,7 +549,10 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
                     {fee.verificationStatus === "VERIFIED" && <Badge tone="green">✓ 확인됨</Badge>}
                     {fee.verificationStatus === "CHANGED" && <Badge tone="orange">다시 확인</Badge>}
                   </div>
-                  <span className="font-semibold">{formatWon(fee.amount)}</span>
+                  <div className="text-right">
+                    <span className="font-semibold">{formatWon(fee.amount)}</span>
+                    {fee.extraAmount > 0 && <p className="text-xs text-brand-700">+ 추가요금 {formatWon(fee.extraAmount)}</p>}
+                  </div>
                 </div>
               ))}
             </div>

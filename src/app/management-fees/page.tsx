@@ -18,12 +18,12 @@ import {
   platformLabel,
   roomLabel,
 } from "@/lib/format";
-import type { FeeBasis, ManagementFee, MonthlyManagementFee } from "@/lib/types";
+import type { FeeBasis, ManagementFee, ManagementFeeExtraItem, MonthlyManagementFee } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
 
-type Filter = "ALL" | "NOT_VERIFIED" | "REVERIFY" | "VERIFIED" | "UNPAID" | "PAID" | "CHANGED" | "ZERO" | "OVERRIDDEN";
+type Filter = "ALL" | "NOT_VERIFIED" | "REVERIFY" | "VERIFIED" | "UNPAID" | "PAID" | "CHANGED" | "ZERO" | "OVERRIDDEN" | "EXTRAS";
 
 /** 확인 상태별 줄 색 (왼쪽 굵은 선 + 연한 바탕) */
 const verifyRowStyle: Record<ManagementFee["verificationStatus"], string> = {
@@ -50,6 +50,7 @@ export default function ManagementFeesPage() {
   const [month, setMonth] = useMonth();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [editing, setEditing] = useState<ManagementFee | null>(null);
+  const [editingExtras, setEditingExtras] = useState<ManagementFee | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -88,7 +89,9 @@ export default function ManagementFeesPage() {
       case "CHANGED":
         return items.filter((f) => f.paymentStatus === "PAID_CHANGED");
       case "ZERO":
-        return items.filter((f) => f.amount === 0);
+        return items.filter((f) => f.payableAmount === 0);
+      case "EXTRAS":
+        return items.filter((f) => f.extras.length > 0);
       case "OVERRIDDEN":
         return items.filter((f) => f.overrideAmount !== null);
       default:
@@ -96,13 +99,21 @@ export default function ManagementFeesPage() {
     }
   }, [items, filter]);
 
-  const total = items.reduce((sum, f) => sum + f.amount, 0);
-  const charged = items.filter((f) => f.amount > 0).length;
+  // 지급액 = 관리비 + 추가요금 (현장에 이체하는 금액)
+  const total = items.reduce((sum, f) => sum + f.payableAmount, 0);
+  const feeTotal = items.reduce((sum, f) => sum + f.amount, 0);
+  const extraTotal = items.reduce((sum, f) => sum + f.extraAmount, 0);
+  const withExtras = items.filter((f) => f.extras.length > 0).length;
+  const grossTotal = items.reduce((sum, f) => sum + (f.grossAmount ?? 0), 0);
+  const netTotal = items.reduce((sum, f) => sum + (f.netAmount ?? 0), 0);
+  const unknownRevenue = items.filter((f) => f.grossAmount === null).length;
+  const feeRatio = grossTotal > 0 ? (feeTotal / grossTotal) * 100 : null;
+  const charged = items.filter((f) => f.payableAmount > 0).length;
   const overridden = items.filter((f) => f.overrideAmount !== null).length;
   const zero = items.length - charged;
   const noRate = items.filter((f) => f.basis === "NO_RATE").length;
   const unpaid = items.filter((f) => f.paymentStatus === "UNPAID");
-  const unpaidTotal = unpaid.reduce((sum, f) => sum + f.amount, 0);
+  const unpaidTotal = unpaid.reduce((sum, f) => sum + f.payableAmount, 0);
   const paidItems = items.filter((f) => f.paymentStatus === "PAID" || f.paymentStatus === "PAID_CHANGED");
   const paidTotal = paidItems.reduce((sum, f) => sum + (f.paidAmount ?? 0), 0);
   const changed = items.filter((f) => f.paymentStatus === "PAID_CHANGED").length;
@@ -134,7 +145,7 @@ export default function ManagementFeesPage() {
       ...fee,
       verificationStatus: verify ? "VERIFIED" : "NONE",
       verifiedAt: verify ? localNow() : null,
-      verifiedAmount: verify ? fee.amount : null,
+      verifiedAmount: verify ? fee.payableAmount : null,
     });
     try {
       const [updated] = await api.post<ManagementFee[]>("/management-fees/verifications", { ids: [fee.id], verified: verify });
@@ -166,7 +177,7 @@ export default function ManagementFeesPage() {
 
   const markPayments = async (fees: ManagementFee[], paid: boolean) => {
     if (fees.length === 0) return;
-    const sum = fees.reduce((s, f) => s + (paid ? f.amount : (f.paidAmount ?? f.amount)), 0);
+    const sum = fees.reduce((s, f) => s + (paid ? f.payableAmount : (f.paidAmount ?? f.payableAmount)), 0);
     const notVerified = fees.filter((f) => f.verificationStatus !== "VERIFIED").length;
     const message = paid
       ? `선택한 ${fees.length}건(${formatWon(sum)})을 입금 완료로 표시할까요?\n현장에 실제로 입금한 건만 표시하세요.` +
@@ -206,7 +217,7 @@ export default function ManagementFeesPage() {
     <>
       <PageHeader
         title="현장 관리비"
-        description="예약 1건의 객실마다 1회 지급합니다 (박수 무관, 취소 0원). 입실일이 속한 달에 포함되고, 객실 명의 사업자가 지급합니다. 정산 파일을 올리면 지급할 금액만 계산되고, 현장에 입금한 뒤 행을 골라 '입금 완료'로 표시합니다."
+        description="예약 1건의 객실마다 1회 지급합니다 (박수 무관, 취소 0원). 입실일이 속한 달에 포함되고, 객실 명의 사업자가 지급합니다. 손님이 바베큐·추가인원 요금을 숙박비와 함께 우리 계좌로 보냈다면 '추가요금'에 적어 관리비와 같이 이체합니다. 현장에 입금한 뒤 행을 골라 '입금 완료'로 표시합니다."
         actions={
           <div className="flex items-center gap-3">
             <Link href="/management-fees/paid" className="text-sm font-medium text-brand-700 hover:underline">
@@ -237,7 +248,7 @@ export default function ManagementFeesPage() {
         </div>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           label={`${owner ? `${ownerLabel(owner.name)} · ` : ""}${month ? formatMonth(month) : ""} 지급 합계`}
           value={data ? formatWon(total) : "-"}
@@ -245,7 +256,25 @@ export default function ManagementFeesPage() {
             noRate ? (
               <span className="text-amber-600">단가 없음 {noRate}건 확인 필요</span>
             ) : data ? (
-              `지급 대상 ${formatNumber(charged)}건 · 0원 ${zero}건 · 직접 수정 ${overridden}건`
+              <>
+                관리비 {formatWon(feeTotal)}
+                {extraTotal > 0 && <span className="text-brand-700"> + 추가요금 {formatWon(extraTotal)} ({withExtras}건)</span>}
+                <br />
+                지급 대상 {formatNumber(charged)}건 · 0원 {zero}건 · 직접 수정 {overridden}건
+              </>
+            ) : undefined
+          }
+        />
+        <Stat
+          label="매출 (판매가)"
+          value={data ? formatWon(grossTotal) : "-"}
+          hint={
+            data ? (
+              <>
+                정산금액 {formatWon(netTotal)}
+                {feeRatio !== null && ` · 관리비 비율 ${feeRatio.toFixed(1)}%`}
+                {unknownRevenue > 0 && <span className="text-amber-600"> · 매출 모름 {unknownRevenue}건</span>}
+              </>
             ) : undefined
           }
         />
@@ -297,6 +326,7 @@ export default function ManagementFeesPage() {
               ...(changed ? [{ value: "CHANGED" as const, label: `금액 변경 ${changed}` }] : []),
               { value: "ZERO", label: "0원" },
               { value: "OVERRIDDEN", label: "수정됨" },
+              ...(withExtras ? [{ value: "EXTRAS" as const, label: `추가요금 ${withExtras}` }] : []),
             ]}
           />
         </div>
@@ -356,6 +386,11 @@ export default function ManagementFeesPage() {
                   <th className="px-4 py-2.5 font-medium">예약</th>
                   <th className="px-3 py-2.5 text-right font-medium">박수</th>
                   <th className="px-4 py-2.5 font-medium">구분</th>
+                  <th className="px-4 py-2.5 text-right font-medium" title="이 객실의 판매가 합계 (취소수수료 포함). 아래는 수수료를 뺀 정산금액">
+                    매출
+                  </th>
+                  <th className="px-4 py-2.5 text-right font-medium">관리비</th>
+                  <th className="px-4 py-2.5 font-medium">추가요금</th>
                   <th className="px-4 py-2.5 text-right font-medium">지급액</th>
                   <th className="px-4 py-2.5 font-medium">입금</th>
                   <th className="px-3 py-2.5 text-center font-medium">확인</th>
@@ -400,6 +435,20 @@ export default function ManagementFeesPage() {
                       )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                      {fee.grossAmount === null ? (
+                        <span className="text-slate-300" title="정산 행이 없는 다중 객실 예약이라 객실별 매출을 모릅니다">
+                          -
+                        </span>
+                      ) : (
+                        <div>
+                          <span className="text-slate-700">{formatWon(fee.grossAmount)}</span>
+                          {fee.netAmount !== null && fee.netAmount !== fee.grossAmount && (
+                            <p className="text-xs text-slate-400">정산 {formatWon(fee.netAmount)}</p>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right">
                       {fee.overrideAmount !== null ? (
                         <div title={fee.overrideReason ?? undefined}>
                           <span className="font-semibold text-brand-700">{formatWon(fee.amount)}</span>
@@ -410,6 +459,12 @@ export default function ManagementFeesPage() {
                       ) : (
                         <span className={fee.amount === 0 ? "text-slate-300" : "font-medium"}>{formatWon(fee.amount)}</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <ExtrasCell fee={fee} onEdit={() => setEditingExtras(fee)} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                      <span className={fee.payableAmount === 0 ? "text-slate-300" : "font-semibold text-slate-900"}>{formatWon(fee.payableAmount)}</span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5">
                       {fee.paymentStatus === "NONE" ? (
@@ -424,7 +479,7 @@ export default function ManagementFeesPage() {
                           {fee.paidAt && <p className="mt-0.5 text-xs text-slate-400">{formatDateTime(fee.paidAt)}</p>}
                           {fee.paymentStatus === "PAID_CHANGED" && (
                             <p className="text-xs text-rose-600">
-                              입금 {formatWon(fee.paidAmount ?? 0)} → 현재 {formatWon(fee.amount)}
+                              입금 {formatWon(fee.paidAmount ?? 0)} → 현재 {formatWon(fee.payableAmount)}
                             </p>
                           )}
                         </div>
@@ -452,6 +507,17 @@ export default function ManagementFeesPage() {
         )}
       </Card>
 
+      {editingExtras && (
+        <ExtrasDialog
+          key={editingExtras.id}
+          fee={editingExtras}
+          onClose={() => setEditingExtras(null)}
+          onSaved={() => {
+            setEditingExtras(null);
+            reload();
+          }}
+        />
+      )}
       {editing && (
         <OverrideDialog
           key={editing.id}
@@ -610,4 +676,246 @@ function localNow(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+const extraItems: Record<ManagementFeeExtraItem, { label: string; unitPrice: number | null; perNight: boolean }> = {
+  BBQ: { label: "바베큐", unitPrice: 30000, perNight: false },
+  EXTRA_PERSON: { label: "추가인원", unitPrice: 20000, perNight: true },
+  OTHER: { label: "기타", unitPrice: null, perNight: false },
+};
+
+/** 추가요금 한 건 요약: "추가인원 2명 × 1박", "바베큐 1회" */
+function extraSummary(e: { item: ManagementFeeExtraItem; quantity: number; nights: number | null; memo: string | null }): string {
+  if (e.item === "EXTRA_PERSON") return `추가인원 ${e.quantity}명 × ${e.nights ?? "-"}박`;
+  if (e.item === "BBQ") return `바베큐 ${e.quantity}회`;
+  return `${e.memo ?? "기타"}${e.quantity > 1 ? ` × ${e.quantity}` : ""}`;
+}
+
+/** 표의 추가요금 칸: 없으면 '+ 추가' 버튼, 있으면 합계와 항목 (누르면 편집) */
+function ExtrasCell({ fee, onEdit }: { fee: ManagementFee; onEdit: () => void }) {
+  const locked = fee.paidAt !== null;
+  const title = locked ? "입금 완료된 관리비는 입금 완료를 취소한 뒤 고칠 수 있습니다" : "추가요금 입력";
+  if (fee.extras.length === 0) {
+    if (fee.status === "CANCELLED") return <span className="text-slate-300">-</span>;
+    return (
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={locked}
+        title={title}
+        className="rounded-md px-2 py-1 text-xs font-medium text-slate-400 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40"
+      >
+        + 추가
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      disabled={locked}
+      title={title}
+      className="-mx-2 rounded-md px-2 py-1 text-left hover:bg-brand-50 disabled:cursor-default disabled:hover:bg-transparent"
+    >
+      <span className="font-medium text-brand-700">{formatWon(fee.extraAmount)}</span>
+      {fee.extras.map((e) => (
+        <p key={e.id} className="whitespace-nowrap text-xs text-slate-500">
+          {extraSummary(e)}
+        </p>
+      ))}
+    </button>
+  );
+}
+
+interface ExtraDraft {
+  key: number;
+  item: ManagementFeeExtraItem;
+  quantity: string;
+  unitPrice: string;
+  nights: string;
+  memo: string;
+}
+
+const digits = (v: string) => v.replace(/[^\d]/g, "");
+
+/** 편집 중인 추가요금 줄의 React key */
+let draftSeq = 0;
+
+function ExtrasDialog({ fee, onClose, onSaved }: { fee: ManagementFee; onClose: () => void; onSaved: () => void }) {
+  const draftOf = (item: ManagementFeeExtraItem, from?: ManagementFee["extras"][number]): ExtraDraft => ({
+    key: ++draftSeq,
+    item,
+    quantity: String(from?.quantity ?? 1),
+    unitPrice: String(from?.unitPrice ?? extraItems[item].unitPrice ?? ""),
+    nights: extraItems[item].perNight ? String(from?.nights ?? fee.nights ?? 1) : "",
+    memo: from?.memo ?? "",
+  });
+  const [drafts, setDrafts] = useState<ExtraDraft[]>(() =>
+    fee.extras.length ? fee.extras.map((e) => draftOf(e.item, e)) : [draftOf("BBQ")],
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const update = (key: number, patch: Partial<ExtraDraft>) => setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  const amountOf = (d: ExtraDraft) => {
+    const n = extraItems[d.item].perNight ? Number(d.nights || 0) : 1;
+    return Number(d.unitPrice || 0) * Number(d.quantity || 0) * n;
+  };
+  const problem = (d: ExtraDraft): string | null => {
+    if (!(Number(d.quantity) > 0)) return "수량을 입력해 주세요";
+    if (!(Number(d.unitPrice) > 0)) return "단가를 입력해 주세요";
+    if (extraItems[d.item].perNight && !(Number(d.nights) > 0)) return "박수를 입력해 주세요";
+    if (d.item === "OTHER" && !d.memo.trim()) return "내용을 적어 주세요";
+    return null;
+  };
+  const extraTotal = drafts.reduce((s, d) => s + amountOf(d), 0);
+  const valid = drafts.every((d) => problem(d) === null);
+
+  const save = async (list: ExtraDraft[]) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/management-fees/${fee.id}/extras`, {
+        extras: list.map((d) => ({
+          item: d.item,
+          quantity: Number(d.quantity),
+          unitPrice: Number(d.unitPrice),
+          nights: extraItems[d.item].perNight ? Number(d.nights) : null,
+          memo: d.memo.trim() || null,
+        })),
+      });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+    }
+  };
+
+  const input = "h-9 w-full rounded-lg border border-slate-300 px-2.5 text-right focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100";
+
+  return (
+    <Modal open onClose={onClose} title="추가요금">
+      <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
+        <p className="font-medium">
+          {roomLabel(fee.roomName)} · {fee.bookerName ?? "예약자 없음"}
+        </p>
+        <p className="mt-0.5 text-slate-500">
+          {formatDate(fee.checkInDate)} 입실 · {fee.nights ?? "-"}박 · {platformLabel[fee.source]} {fee.reservationNumber}
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          손님이 현장에 낼 요금을 숙박비와 함께 우리 계좌로 보낸 경우에만 적습니다. 관리비와 합쳐 현장에 이체합니다.
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {drafts.map((d) => {
+          const meta = extraItems[d.item];
+          return (
+            <div key={d.key} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <select
+                  value={d.item}
+                  onChange={(e) => {
+                    const item = e.target.value as ManagementFeeExtraItem;
+                    const m = extraItems[item];
+                    update(d.key, {
+                      item,
+                      unitPrice: m.unitPrice !== null ? String(m.unitPrice) : "",
+                      nights: m.perNight ? String(fee.nights ?? 1) : "",
+                    });
+                  }}
+                  className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm font-medium focus:border-brand-500 focus:outline-none"
+                  aria-label="항목"
+                >
+                  {(Object.keys(extraItems) as ManagementFeeExtraItem[]).map((k) => (
+                    <option key={k} value={k}>
+                      {extraItems[k].label}
+                    </option>
+                  ))}
+                </select>
+                <span className="ml-auto text-sm font-semibold">{formatWon(amountOf(d))}</span>
+                <button
+                  type="button"
+                  onClick={() => setDrafts((prev) => prev.filter((x) => x.key !== d.key))}
+                  className="rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  aria-label="이 항목 지우기"
+                >
+                  삭제
+                </button>
+              </div>
+              <div className={`mt-2 grid gap-2 ${meta.perNight ? "grid-cols-3" : "grid-cols-2"}`}>
+                <label className="block text-xs text-slate-500">
+                  {d.item === "EXTRA_PERSON" ? "인원" : "수량"}
+                  <input inputMode="numeric" value={d.quantity} onChange={(e) => update(d.key, { quantity: digits(e.target.value) })} className={`mt-1 ${input}`} />
+                </label>
+                {meta.perNight && (
+                  <label className="block text-xs text-slate-500">
+                    박수
+                    <input inputMode="numeric" value={d.nights} onChange={(e) => update(d.key, { nights: digits(e.target.value) })} className={`mt-1 ${input}`} />
+                  </label>
+                )}
+                <label className="block text-xs text-slate-500">
+                  단가{meta.perNight ? " (1박 1인)" : ""}
+                  <input inputMode="numeric" value={d.unitPrice} onChange={(e) => update(d.key, { unitPrice: digits(e.target.value) })} className={`mt-1 ${input}`} />
+                </label>
+              </div>
+              <input
+                value={d.memo}
+                onChange={(e) => update(d.key, { memo: e.target.value })}
+                placeholder={d.item === "OTHER" ? "내용 (필수), 예: 숯 추가" : "메모 (선택)"}
+                className="mt-2 h-9 w-full rounded-lg border border-slate-300 px-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              />
+              {problem(d) && <p className="mt-1 text-xs text-amber-700">{problem(d)}</p>}
+            </div>
+          );
+        })}
+
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(extraItems) as ManagementFeeExtraItem[]).map((k) => (
+            <Button key={k} size="sm" variant="ghost" onClick={() => setDrafts((prev) => [...prev, draftOf(k)])}>
+              + {extraItems[k].label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
+          <div className="flex justify-between text-slate-500">
+            <span>관리비</span>
+            <span>{formatWon(fee.amount)}</span>
+          </div>
+          <div className="flex justify-between text-slate-500">
+            <span>추가요금</span>
+            <span>{formatWon(extraTotal)}</span>
+          </div>
+          <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold">
+            <span>현장에 이체할 금액</span>
+            <span>{formatWon(fee.amount + extraTotal)}</span>
+          </div>
+          {fee.verificationStatus === "VERIFIED" && extraTotal !== fee.extraAmount && (
+            <p className="mt-1 text-xs text-amber-700">이미 확인한 건이라 저장하면 &lsquo;다시 확인&rsquo;으로 바뀝니다.</p>
+          )}
+        </div>
+
+        {error && <Alert>{error}</Alert>}
+
+        <div className="flex items-center justify-between pt-1">
+          {fee.extras.length > 0 ? (
+            <Button variant="danger" disabled={saving} onClick={() => confirm("추가요금을 모두 지울까요?") && save([])}>
+              모두 지우기
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={saving}>
+              취소
+            </Button>
+            <Button variant="primary" disabled={!valid} loading={saving} onClick={() => save(drafts)}>
+              저장
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
 }
