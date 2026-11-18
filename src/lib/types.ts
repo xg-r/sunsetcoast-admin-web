@@ -64,6 +64,21 @@ export type FeeBasis = "CHARGED" | "CANCELLED" | "NO_STAY" | "NO_RATE";
 /** NONE: 0원(지급 없음), UNPAID: 미입금, PAID: 입금 완료, PAID_CHANGED: 입금 뒤 지급액이 바뀜 */
 export type FeePaymentStatus = "NONE" | "UNPAID" | "PAID" | "PAID_CHANGED";
 
+export type ManagementFeeExtraItem = "BBQ" | "EXTRA_PERSON" | "OTHER";
+
+/** 관리비와 함께 현장에 넘겨 줄 추가요금 한 건. 금액 = 단가 × 수량 × 박수 */
+export interface ManagementFeeExtra {
+  id: number;
+  item: ManagementFeeExtraItem;
+  unitPrice: number;
+  /** 수량 (추가인원은 인원) */
+  quantity: number;
+  /** 박수 (추가인원만) */
+  nights: number | null;
+  amount: number;
+  memo: string | null;
+}
+
 export interface ManagementFee {
   id: number;
   reservationId: number;
@@ -79,7 +94,15 @@ export interface ManagementFee {
   calculatedAmount: number;
   overrideAmount: number | null;
   overrideReason: string | null;
+  /** 관리비 (추가요금 제외) */
   amount: number;
+  extras: ManagementFeeExtra[];
+  extraAmount: number;
+  /** 현장에 이체할 금액 = 관리비 + 추가요금. 입금 완료·확인은 이 금액 기준 */
+  payableAmount: number;
+  /** 이 객실의 매출(판매가)과 정산금액. 관리비 화면에서만, 모르면 null */
+  grossAmount: number | null;
+  netAmount: number | null;
   paymentStatus: FeePaymentStatus;
   /** 관리자가 입금 완료로 표시한 시각 */
   paidAt: string | null;
@@ -97,7 +120,13 @@ export interface MonthlyManagementFee {
   businessOwnerId: number | null;
   month: string;
   chargedCount: number;
+  /** 관리비 합계 (추가요금 제외) */
+  feeAmount: number;
+  extraAmount: number;
+  /** 관리비 + 추가요금 */
   totalAmount: number;
+  grossAmount: number;
+  netAmount: number;
   paidAmount: number;
   unpaidCount: number;
   unpaidAmount: number;
