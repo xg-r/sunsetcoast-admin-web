@@ -92,6 +92,7 @@ export const salesChannelLabel: Record<SalesChannel, string> = {
   NAVER: "네이버",
   YANOLJA: "야놀자",
   YEOGI: "여기어때",
+  YEOGI_PARTNER: "여기어때 연동사이트",
   DDNAYO: "떠나요",
   HOMEPAGE: "홈페이지",
   PHONE: "전화",

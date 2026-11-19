@@ -158,7 +158,7 @@ export interface SeasonDay {
   offpeakVotes: number;
 }
 
-export type SalesChannel = "NAVER" | "YANOLJA" | "YEOGI" | "DDNAYO" | "HOMEPAGE" | "PHONE" | "WALK_IN" | "OTHER";
+export type SalesChannel = "NAVER" | "YANOLJA" | "YEOGI" | "YEOGI_PARTNER" | "DDNAYO" | "HOMEPAGE" | "PHONE" | "WALK_IN" | "OTHER";
 
 export interface Reservation {
   id: number;
