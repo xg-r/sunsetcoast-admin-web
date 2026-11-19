@@ -18,12 +18,12 @@ import {
   platformLabel,
   roomLabel,
 } from "@/lib/format";
-import type { FeeBasis, ManagementFee, ManagementFeeExtraItem, MonthlyManagementFee } from "@/lib/types";
+import type { FeeBasis, ManagementFee, ManagementFeeExtraItem, MonthlyManagementFee, Room } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useMonth } from "@/lib/use-month";
 import { useProperty } from "@/lib/use-property";
 
-type Filter = "ALL" | "NOT_VERIFIED" | "REVERIFY" | "VERIFIED" | "UNPAID" | "PAID" | "CHANGED" | "ZERO" | "OVERRIDDEN" | "EXTRAS";
+type Filter = "ALL" | "NOT_VERIFIED" | "REVERIFY" | "VERIFIED" | "UNPAID" | "PAID" | "CHANGED" | "ZERO" | "OVERRIDDEN" | "EXTRAS" | "MOVED";
 
 /** 확인 상태별 줄 색 (왼쪽 굵은 선 + 연한 바탕) */
 const verifyRowStyle: Record<ManagementFee["verificationStatus"], string> = {
@@ -51,6 +51,8 @@ export default function ManagementFeesPage() {
   const [filter, setFilter] = useState<Filter>("ALL");
   const [editing, setEditing] = useState<ManagementFee | null>(null);
   const [editingExtras, setEditingExtras] = useState<ManagementFee | null>(null);
+  const [movingRoom, setMovingRoom] = useState<ManagementFee | null>(null);
+  const allRooms = useMemo(() => scope.owners.flatMap((o) => o.rooms), [scope.owners]);
   const [recalculating, setRecalculating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -92,6 +94,8 @@ export default function ManagementFeesPage() {
         return items.filter((f) => f.payableAmount === 0);
       case "EXTRAS":
         return items.filter((f) => f.extras.length > 0);
+      case "MOVED":
+        return items.filter((f) => f.movedRoomId !== null);
       case "OVERRIDDEN":
         return items.filter((f) => f.overrideAmount !== null);
       default:
@@ -104,6 +108,7 @@ export default function ManagementFeesPage() {
   const feeTotal = items.reduce((sum, f) => sum + f.amount, 0);
   const extraTotal = items.reduce((sum, f) => sum + f.extraAmount, 0);
   const withExtras = items.filter((f) => f.extras.length > 0).length;
+  const moved = items.filter((f) => f.movedRoomId !== null).length;
   const grossTotal = items.reduce((sum, f) => sum + (f.grossAmount ?? 0), 0);
   const netTotal = items.reduce((sum, f) => sum + (f.netAmount ?? 0), 0);
   const unknownRevenue = items.filter((f) => f.grossAmount === null).length;
@@ -327,6 +332,7 @@ export default function ManagementFeesPage() {
               { value: "ZERO", label: "0원" },
               { value: "OVERRIDDEN", label: "수정됨" },
               ...(withExtras ? [{ value: "EXTRAS" as const, label: `추가요금 ${withExtras}` }] : []),
+              ...(moved ? [{ value: "MOVED" as const, label: `객실 변경 ${moved}` }] : []),
             ]}
           />
         </div>
@@ -417,7 +423,9 @@ export default function ManagementFeesPage() {
                       )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5">{formatDate(fee.checkInDate)}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 font-medium">{roomLabel(fee.roomName)}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5">
+                      <RoomCell fee={fee} onEdit={() => setMovingRoom(fee)} />
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
                         <Badge>{platformLabel[fee.source]}</Badge>
@@ -507,6 +515,18 @@ export default function ManagementFeesPage() {
         )}
       </Card>
 
+      {movingRoom && (
+        <RoomChangeDialog
+          key={movingRoom.id}
+          fee={movingRoom}
+          rooms={allRooms}
+          onClose={() => setMovingRoom(null)}
+          onSaved={() => {
+            setMovingRoom(null);
+            reload();
+          }}
+        />
+      )}
       {editingExtras && (
         <ExtrasDialog
           key={editingExtras.id}
@@ -916,6 +936,149 @@ function ExtrasDialog({ fee, onClose, onSaved }: { fee: ManagementFee; onClose: 
           </div>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+/** 표의 객실 칸: 누르면 현장 객실 변경. 옮겼으면 "해안 → 놀멍"과 차액 */
+function RoomCell({ fee, onEdit }: { fee: ManagementFee; onEdit: () => void }) {
+  const locked = fee.paidAt !== null;
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      disabled={locked}
+      title={locked ? "입금 완료된 관리비는 입금 완료를 취소한 뒤 고칠 수 있습니다" : "현장에서 방을 옮겼으면 눌러서 객실을 고릅니다"}
+      className="group -mx-2 rounded-md px-2 py-1 text-left hover:bg-brand-50 disabled:cursor-default disabled:hover:bg-transparent"
+    >
+      {fee.movedRoomName ? (
+        <>
+          <span className="text-xs text-slate-400 line-through">{roomLabel(fee.roomName)}</span>
+          <span className="font-medium text-brand-700"> → {roomLabel(fee.movedRoomName)}</span>
+          {fee.roomChangeDifference !== null && (
+            <p className="text-xs text-slate-500">차액 {formatWon(fee.roomChangeDifference)}</p>
+          )}
+        </>
+      ) : (
+        <span className="font-medium">
+          {roomLabel(fee.roomName)}
+          {!locked && <span className="ml-1 text-xs font-normal text-slate-300 group-hover:text-brand-600">▾</span>}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function RoomChangeDialog({ fee, rooms, onClose, onSaved }: { fee: ManagementFee; rooms: Room[]; onClose: () => void; onSaved: () => void }) {
+  const booked = rooms.find((r) => r.id === fee.roomId);
+  // 같은 업소 객실만, 예약한 객실은 '변경 없음'으로
+  const choices = rooms.filter((r) => r.id !== fee.roomId && (!booked || r.propertyId === booked.propertyId)).sort((a, b) => a.id - b.id);
+  const [roomId, setRoomId] = useState<number | null>(fee.movedRoomId);
+  const [difference, setDifference] = useState(fee.roomChangeDifference !== null ? String(fee.roomChangeDifference) : "");
+  const [memo, setMemo] = useState(fee.roomChangeMemo ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const parsed = difference.trim() === "" || difference.trim() === "-" ? null : Number(difference.replaceAll(",", ""));
+  const valid = parsed === null || Number.isFinite(parsed);
+
+  const save = async (body: { roomId: number | null; difference: number | null; memo: string | null }) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/management-fees/${fee.id}/room-change`, body);
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="현장 객실 변경">
+      <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
+        <p className="font-medium">
+          예약 객실 {roomLabel(fee.roomName)} · {fee.bookerName ?? "예약자 없음"}
+        </p>
+        <p className="mt-0.5 text-slate-500">
+          {formatDate(fee.checkInDate)} 입실 · {fee.nights ?? "-"}박 · {platformLabel[fee.source]} {fee.reservationNumber}
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          손님이 현장에서 방을 옮긴 경우 실제로 묵은 객실을 고릅니다. 관리비는 옮긴 객실 단가로 다시 계산하고, 받은 차액은 이 예약의 매출에 더합니다.
+          예약내역에도 &lsquo;{roomLabel(fee.roomName)} → 옮긴 객실&rsquo;로 보입니다.
+        </p>
+      </div>
+
+      <form
+        className="mt-4 space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid && roomId !== null) save({ roomId, difference: parsed, memo: memo.trim() || null });
+        }}
+      >
+        <label className="block">
+          <span className="text-sm font-medium">실제로 묵은 객실</span>
+          <select
+            value={roomId ?? ""}
+            onChange={(e) => setRoomId(e.target.value ? Number(e.target.value) : null)}
+            className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            autoFocus
+          >
+            <option value="">객실을 고르세요</option>
+            {choices.map((r) => (
+              <option key={r.id} value={r.id}>
+                {roomLabel(r.name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">받은 차액 (추가요금)</span>
+          <div className="relative mt-1">
+            <input
+              inputMode="numeric"
+              value={difference}
+              onChange={(e) => setDifference(e.target.value.replace(/[^\d,-]/g, ""))}
+              placeholder="예: 120000 (환불이면 -)"
+              className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-8 text-right focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">원</span>
+          </div>
+          <span className="mt-1 block text-xs text-slate-400">손님이 계좌이체한 금액. 없으면 비워 두세요.</span>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">메모</span>
+          <input
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="예: 온수 고장으로 이동"
+            className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
+        </label>
+        {fee.overrideAmount !== null && (
+          <p className="text-xs text-amber-700">이 관리비는 직접 고친 금액({formatWon(fee.overrideAmount)})이 있어 객실을 바꿔도 그 금액이 유지됩니다.</p>
+        )}
+
+        {error && <Alert>{error}</Alert>}
+
+        <div className="flex items-center justify-between pt-2">
+          {fee.movedRoomId !== null ? (
+            <Button variant="danger" disabled={saving} onClick={() => save({ roomId: null, difference: null, memo: null })}>
+              변경 취소 (예약 객실로)
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={saving}>
+              취소
+            </Button>
+            <Button type="submit" variant="primary" disabled={!valid || roomId === null} loading={saving}>
+              저장
+            </Button>
+          </div>
+        </div>
+      </form>
     </Modal>
   );
 }

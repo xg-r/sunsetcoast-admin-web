@@ -23,7 +23,7 @@ import {
   paymentMethodLabel,
   platformLabel,
   roomLabel,
-  roomsLabel,
+  stayedRoomsLabel,
   salesChannelLabel,
 } from "@/lib/format";
 import type { Platform, Reservation, ReservationDetail, SettlementLine } from "@/lib/types";
@@ -236,7 +236,8 @@ export default function ReservationsPage() {
                       <p className="text-xs text-slate-400">{r.checkInDate ? `${r.nights ?? "-"}박` : "매출인식일"}</p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
-                      {roomsLabel(r.rooms)}
+                      {stayedRoomsLabel(r.rooms, r.roomChanges)}
+                      {r.roomChanges.length > 0 && <p className="text-xs font-normal text-brand-700">현장 객실 변경</p>}
                       {r.rooms.length > 1 && <p className="text-xs font-normal text-slate-400">{r.rooms.length}객실</p>}
                     </td>
                     <td className="px-4 py-3">
@@ -469,9 +470,10 @@ function DrawerTitle({ reservation: r }: { reservation: Reservation }) {
         {r.peakSeason && <Badge tone="orange">성수기</Badge>}
         {r.weekend && <Badge tone="violet">주말</Badge>}
         {r.rooms.length > 1 && <Badge tone="blue">{r.rooms.length}객실</Badge>}
+        {r.roomChanges.length > 0 && <Badge tone="blue">현장 객실 변경</Badge>}
       </div>
       <h2 className="mt-2 text-xl font-bold">
-        {roomsLabel(r.rooms)} <span className="font-normal text-slate-400">·</span> {r.bookerName ?? "예약자 없음"}
+        {stayedRoomsLabel(r.rooms, r.roomChanges)} <span className="font-normal text-slate-400">·</span> {r.bookerName ?? "예약자 없음"}
       </h2>
       <p className="mt-0.5 text-sm text-slate-500">
         {r.checkInDate && r.nights
@@ -512,6 +514,16 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
             </div>
           )}
           <Info label="정산 플랫폼" value={platformLabel[r.source]} />
+          {r.roomChanges.map((c) => (
+            <div key={c.fromRoomId} className="col-span-2">
+              <dt className="text-xs text-slate-500">현장 객실 변경</dt>
+              <dd className="mt-0.5">
+                예약 {roomLabel(c.fromRoomName)} → 실제 {roomLabel(c.toRoomName)}
+                {c.difference !== null && <span className="text-slate-500"> · 차액 {formatWon(c.difference)}</span>}
+                {c.memo && <span className="text-slate-500"> · {c.memo}</span>}
+              </dd>
+            </div>
+          ))}
         </dl>
       </section>
 
@@ -519,6 +531,9 @@ function DrawerBody({ detail }: { detail: ReservationDetail }) {
         <h3 className="mb-2 text-sm font-semibold">금액</h3>
         <div className="rounded-xl border border-slate-200">
           <AmountRow label="매출" value={formatWon(r.grossAmount)} />
+          {r.roomChangeDifference !== null && r.roomChangeDifference !== 0 && (
+            <AmountRow label="└ 현장 객실 변경 차액 (매출·정산금액에 포함)" value={formatWon(r.roomChangeDifference)} muted />
+          )}
           {partnerDiscount !== 0 && <AmountRow label="우리 부담 할인" value={`- ${formatWon(partnerDiscount)}`} muted />}
           <AmountRow label="수수료" value={`- ${formatWon(r.commissionAmount)}`} muted />
           {otherFee !== 0 && <AmountRow label="기타 비용" value={`- ${formatWon(otherFee)}`} muted />}

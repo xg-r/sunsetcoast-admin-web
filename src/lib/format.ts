@@ -131,3 +131,13 @@ export const roomTypeLabel: Record<string, string> = {
 export function roomsLabel(rooms: { name: string }[]): string {
   return rooms.map((r) => roomLabel(r.name)).join(", ");
 }
+
+/** 현장 객실 변경을 반영한 객실 이름: "해안 → 놀멍" */
+export function stayedRoomsLabel(rooms: { id: number; name: string }[], changes: { fromRoomId: number; toRoomName: string }[]): string {
+  return rooms
+    .map((r) => {
+      const moved = changes.find((c) => c.fromRoomId === r.id);
+      return moved ? `${roomLabel(r.name)} → ${roomLabel(moved.toRoomName)}` : roomLabel(r.name);
+    })
+    .join(", ");
+}
