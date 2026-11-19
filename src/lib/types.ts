@@ -79,6 +79,16 @@ export interface ManagementFeeExtra {
   memo: string | null;
 }
 
+export interface RoomChange {
+  fromRoomId: number;
+  fromRoomName: string;
+  toRoomId: number;
+  toRoomName: string;
+  /** 받은 차액. 슈퍼어드민만 */
+  difference: number | null;
+  memo: string | null;
+}
+
 export interface ManagementFee {
   id: number;
   reservationId: number;
@@ -87,6 +97,12 @@ export interface ManagementFee {
   bookerName: string | null;
   roomId: number;
   roomName: string;
+  /** 현장에서 옮긴 객실 (실제로 묵은 객실). 관리비는 이 객실 단가 */
+  movedRoomId: number | null;
+  movedRoomName: string | null;
+  /** 객실을 옮기며 받은 차액 (환불이면 음수). grossAmount·netAmount에 포함 */
+  roomChangeDifference: number | null;
+  roomChangeMemo: string | null;
   checkInDate: string | null;
   nights: number | null;
   status: "CONFIRMED" | "CANCELLED";
@@ -154,6 +170,8 @@ export interface Reservation {
   roomId: number;
   roomName: string;
   rooms: { id: number; name: string }[];
+  /** 현장에서 옮긴 객실 (관리비 화면에서 입력). rooms는 예약한 객실 그대로 */
+  roomChanges: RoomChange[];
   bookerName: string | null;
   reservedAt: string | null;
   checkInDate: string | null;
@@ -167,6 +185,8 @@ export interface Reservation {
   grossAmount: number | null;
   commissionAmount: number | null;
   netAmount: number | null;
+  /** 현장 객실 변경 차액 합계 (grossAmount·netAmount에 포함). 슈퍼어드민만 */
+  roomChangeDifference: number | null;
   managementFee: number | null;
   /** OWNER: 외부 소유주 계좌로 직접 입금 (매출 제외) */
   paymentReceiver: "US" | "OWNER";
