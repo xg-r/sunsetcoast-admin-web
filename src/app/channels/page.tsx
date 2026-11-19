@@ -19,6 +19,7 @@ const CHANNEL_COLOR: Record<SalesChannel, string> = {
   DDNAYO: "#e87ba4",
   PHONE: "#008300",
   WALK_IN: "#6250d6",
+  YEOGI_PARTNER: "#e34948",
   OTHER: "#a3a29c",
 };
 const CHANNEL_ORDER = Object.keys(CHANNEL_COLOR) as SalesChannel[];
